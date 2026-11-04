@@ -1,0 +1,132 @@
+filters:
+  and:
+    - '!file.inFolder("05 - Sistema")'
+formulas:
+  data_chave: 'if(proxima_manutencao, date(proxima_manutencao), if(vencimento, date(vencimento), if(proxima_dose, date(proxima_dose), if(validade, date(validade), if(proxima_cobranca, date(proxima_cobranca), if(garantia_ate, date(garantia_ate), if(tipo == "processo" && prazo, date(prazo))))))))'
+  o_que: 'if(proxima_manutencao, "🔧 Manutenção", if(vencimento, "💳 Vencimento", if(proxima_dose, "💉 Dose", if(validade, "🪪 Validade", if(proxima_cobranca, "🔁 Cobrança", if(garantia_ate, "🛡️ Garantia", if(tipo == "processo", "⚖️ Prazo")))))))'
+properties:
+  file.name:
+    displayName: Nota
+  formula.data_chave:
+    displayName: Data
+  formula.o_que:
+    displayName: O quê
+views:
+  - type: table
+    name: "Tarefas"
+    filters:
+      and:
+        - 'tipo == "tarefa"'
+        - 'status != "feita"'
+        - 'date(prazo) <= today()'
+    order:
+      - file.name
+      - prazo
+      - area
+
+  - type: table
+    name: "Vencimentos"
+    filters:
+      and:
+        - 'status != "pago"'
+        - 'status != "cancelada"'
+        - 'status != "feita"'
+        - 'formula.data_chave <= today() + "30d"'
+    order:
+      - file.name
+      - formula.o_que
+      - formula.data_chave
+
+  - type: table
+    name: "Projetos ativos"
+    filters:
+      and:
+        - 'tipo == "projeto"'
+        - 'status == "ativo" || status == "planejamento" || status == "em andamento"'
+    order:
+      - file.name
+      - status
+      - prazo
+
+  - type: table
+    name: "Vida - próximas datas"
+    filters:
+      and:
+        - 'file.inFolder("01 - Vida")'
+        - 'status != "pago"'
+        - 'status != "cancelada"'
+        - 'status != "feita"'
+        - 'formula.data_chave <= today() + "90d"'
+    order:
+      - file.name
+      - formula.o_que
+      - formula.data_chave
+
+  - type: table
+    name: "Família"
+    filters:
+      and:
+        - 'tipo == "pessoa"'
+    order:
+      - file.name
+      - relacao
+      - aniversario
+
+  - type: table
+    name: "Nicolas"
+    filters:
+      and:
+        - 'pessoa == "Nicolas"'
+    order:
+      - file.name
+      - evento
+      - data
+      - proxima_dose
+
+  - type: table
+    name: "Nicolas - próximas datas"
+    filters:
+      and:
+        - 'pessoa == "Nicolas"'
+        - 'status != "pago"'
+        - 'status != "cancelada"'
+        - 'status != "feita"'
+        - 'formula.data_chave >= today()'
+    order:
+      - file.name
+      - formula.o_que
+      - formula.data_chave
+
+  - type: table
+    name: "Pets"
+    filters:
+      and:
+        - 'tipo == "pet" || area == "pets"'
+    order:
+      - file.name
+      - evento
+      - data
+      - proxima_dose
+
+  - type: table
+    name: "Saúde"
+    filters:
+      and:
+        - 'tipo == "saude"'
+    order:
+      - file.name
+      - pessoa
+      - evento
+      - data
+
+  - type: table
+    name: "Viagens"
+    filters:
+      and:
+        - 'tipo == "viagem"'
+    order:
+      - file.name
+      - destino
+      - data_ida
+      - status
+

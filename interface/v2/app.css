@@ -1,0 +1,170 @@
+/* ==========================================================================
+   Meu Segundo Cérebro — visual v2 ("app")
+   Vale só para notas com `cssclasses: sc-app`.
+   Os cartões são callouts nativos do Obsidian + 1 link interno real cada.
+   ========================================================================== */
+
+/* ---------- Cores (claro) ---------- */
+body {
+  --sc2-rosa: #fde2ea;    --sc2-rosa-t: #b8476f;
+  --sc2-lilas: #e4e4fb;   --sc2-lilas-t: #5357b8;
+  --sc2-pessego: #fee7d3; --sc2-pessego-t: #b0651c;
+  --sc2-salvia: #e2eedd;  --sc2-salvia-t: #4b7a49;
+  --sc2-menta: #d5f3e7;   --sc2-menta-t: #1f8263;
+  --sc2-roxo: #ece3fa;    --sc2-roxo-t: #7244b5;
+  --sc2-coral: #fde0d8;   --sc2-coral-t: #c15237;
+  --sc2-ceu: #dcEEFB;     --sc2-ceu-t: #2f72a8;
+  --sc2-amarelo: #fdf1c9; --sc2-amarelo-t: #9a7410;
+  --sc2-raio: 20px;
+}
+/* ---------- Cores (escuro) ---------- */
+body.theme-dark {
+  --sc2-rosa: rgba(232, 120, 160, .17);    --sc2-rosa-t: #f4a3c1;
+  --sc2-lilas: rgba(132, 136, 240, .18);   --sc2-lilas-t: #b0b2ff;
+  --sc2-pessego: rgba(240, 160, 90, .17);  --sc2-pessego-t: #f5bf8a;
+  --sc2-salvia: rgba(130, 180, 125, .17);  --sc2-salvia-t: #aed6a9;
+  --sc2-menta: rgba(70, 195, 150, .17);    --sc2-menta-t: #86dfbd;
+  --sc2-roxo: rgba(165, 120, 235, .19);    --sc2-roxo-t: #cbabf7;
+  --sc2-coral: rgba(238, 125, 98, .18);    --sc2-coral-t: #f6ab95;
+  --sc2-ceu: rgba(90, 160, 230, .18);      --sc2-ceu-t: #9fcaf2;
+  --sc2-amarelo: rgba(230, 195, 80, .17);  --sc2-amarelo-t: #ecd283;
+}
+
+/* ---------- Página ---------- */
+.sc-app { --file-line-width: 940px; }
+.sc-app .inline-title,
+.sc-app .metadata-container,
+.sc-app .frontmatter-container,
+.sc-app .embedded-backlinks { display: none; }
+
+/* aviso que só aparece quando ESTE CSS está desligado */
+.callout[data-callout="sc-aviso-css"] { display: none !important; }
+
+/* todos os callouts do app: sem ícone, sem borda, sem azul padrão */
+.sc-app .callout[data-callout^="sc-"] {
+  border: 0;
+  box-shadow: none;
+  mix-blend-mode: normal;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+}
+.sc-app .callout[data-callout^="sc-"] > .callout-title .callout-icon,
+.sc-app .callout[data-callout^="sc-"] > .callout-title .callout-fold { display: none; }
+
+/* ---------- Topo ---------- */
+.sc-app .callout[data-callout="sc-topo"] { margin: 4px 0 22px; }
+.sc-app .callout[data-callout="sc-topo"] > .callout-title {
+  font-size: 1.85em;
+  font-weight: 800;
+  line-height: 1.15;
+  color: var(--text-normal);
+  padding: 0;
+}
+.sc-app .callout[data-callout="sc-topo"] > .callout-content {
+  padding: 4px 0 0;
+  color: var(--text-muted);
+  font-size: .98em;
+}
+.sc-app .callout[data-callout="sc-topo"] > .callout-content p { margin: 0; }
+.sc-app .callout[data-callout="sc-topo"] a.internal-link {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: .9em;
+}
+.sc-app .callout[data-callout="sc-topo"] a.internal-link:hover { color: var(--text-normal); }
+
+/* ---------- Grade de cartões ---------- */
+.sc-app .callout[data-callout="sc-grade"] { margin: 0 0 28px; }
+.sc-app .callout[data-callout="sc-grade"] > .callout-title { display: none; }
+.sc-app .callout[data-callout="sc-grade"] > .callout-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+  padding: 0;
+}
+.sc-app .callout[data-callout="sc-grade-p"] { margin: 0 0 28px; }
+.sc-app .callout[data-callout="sc-grade-p"] > .callout-title { display: none; }
+.sc-app .callout[data-callout="sc-grade-p"] > .callout-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+  padding: 0;
+}
+
+/* ---------- Cartão ---------- */
+.sc-app .callout[data-callout^="sc-c-"] {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 118px;
+  padding: 16px 16px 14px;
+  border-radius: var(--sc2-raio);
+  background: var(--sc2-bg);
+  transition: transform .12s ease, filter .12s ease;
+}
+.sc-app .callout[data-callout^="sc-c-"]:hover { transform: translateY(-2px); filter: saturate(1.08); }
+.sc-app .callout[data-callout^="sc-c-"] > .callout-title {
+  padding: 0;
+  font-size: 2.1em;          /* o ícone */
+  line-height: 1;
+}
+.sc-app .callout[data-callout^="sc-c-"] > .callout-content { padding: 0; }
+.sc-app .callout[data-callout^="sc-c-"] > .callout-content p { margin: 12px 0 0; }
+.sc-app .callout[data-callout^="sc-c-"] a.internal-link {
+  color: var(--sc2-t);
+  font-weight: 700;
+  font-size: 1.05em;
+  text-decoration: none;
+}
+/* o cartão inteiro abre a nota: a área do link cobre o cartão */
+.sc-app .callout[data-callout^="sc-c-"] a.internal-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--sc2-raio);
+  z-index: 2;
+}
+.sc-app .callout[data-callout="sc-grade-p"] .callout[data-callout^="sc-c-"] { min-height: 100px; padding: 14px; }
+.sc-app .callout[data-callout="sc-grade-p"] .callout[data-callout^="sc-c-"] > .callout-title { font-size: 1.8em; }
+.sc-app .callout[data-callout="sc-grade-p"] .callout[data-callout^="sc-c-"] a.internal-link { font-size: .98em; }
+
+.callout[data-callout="sc-c-rosa"]    { --sc2-bg: var(--sc2-rosa);    --sc2-t: var(--sc2-rosa-t); }
+.callout[data-callout="sc-c-lilas"]   { --sc2-bg: var(--sc2-lilas);   --sc2-t: var(--sc2-lilas-t); }
+.callout[data-callout="sc-c-pessego"] { --sc2-bg: var(--sc2-pessego); --sc2-t: var(--sc2-pessego-t); }
+.callout[data-callout="sc-c-salvia"]  { --sc2-bg: var(--sc2-salvia);  --sc2-t: var(--sc2-salvia-t); }
+.callout[data-callout="sc-c-menta"]   { --sc2-bg: var(--sc2-menta);   --sc2-t: var(--sc2-menta-t); }
+.callout[data-callout="sc-c-roxo"]    { --sc2-bg: var(--sc2-roxo);    --sc2-t: var(--sc2-roxo-t); }
+.callout[data-callout="sc-c-coral"]   { --sc2-bg: var(--sc2-coral);   --sc2-t: var(--sc2-coral-t); }
+.callout[data-callout="sc-c-ceu"]     { --sc2-bg: var(--sc2-ceu);     --sc2-t: var(--sc2-ceu-t); }
+.callout[data-callout="sc-c-amarelo"] { --sc2-bg: var(--sc2-amarelo); --sc2-t: var(--sc2-amarelo-t); }
+
+/* ---------- Painéis (títulos discretos + tabela do Bases arredondada) ---------- */
+.sc-app h2 {
+  font-size: .82em;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border: 0;
+  margin: 26px 0 8px;
+  padding: 0;
+}
+.sc-app .internal-embed:has(.bases-view),
+.sc-app .bases-embed {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--background-primary);
+}
+
+/* ---------- iPhone ---------- */
+@media (max-width: 600px) {
+  .sc-app .callout[data-callout="sc-grade"] > .callout-content { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .sc-app .callout[data-callout="sc-grade-p"] > .callout-content { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .sc-app .callout[data-callout="sc-topo"] > .callout-title { font-size: 1.5em; }
+  .sc-app .callout[data-callout^="sc-c-"] { min-height: 104px; }
+}
+.is-mobile .sc-app .callout[data-callout="sc-grade"] > .callout-content,
+.is-mobile .sc-app .callout[data-callout="sc-grade-p"] > .callout-content { grid-template-columns: repeat(2, minmax(0, 1fr)); }

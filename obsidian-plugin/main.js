@@ -138,6 +138,7 @@ module.exports = class PonteSegundoCerebro extends Plugin {
   excluida(caminho) {
     if (!caminho.toLowerCase().endsWith(".md")) return true;
     if (caminho.split("/").some((p) => p.startsWith("."))) return true;
+    if (caminho.startsWith("05 - Sistema/Backups/")) return true; // backups das telas não vão para a nuvem
     const pastas = this.settings.pastasExcluidas.split(/\n|,/).map((s) => s.trim()).filter(Boolean);
     return pastas.some((p) => caminho === p || caminho.startsWith(p.replace(/\/$/, "") + "/"));
   }
@@ -264,8 +265,43 @@ module.exports = class PonteSegundoCerebro extends Plugin {
     }
   }
 
+  // Substitui SOMENTE telas do sistema (notas com cssclasses sc-painel/sc-app, painéis .base
+  // em "05 - Sistema/Painéis" e snippets CSS). Sempre guarda uma cópia antes em
+  // "05 - Sistema/Backups/<data-hora>/". Notas pessoais são recusadas.
+  async substituirComBackup(caminho, conteudo) {
+    const ehConfig = caminho.startsWith(".obsidian/");
+    const real = ehConfig ? `${this.app.vault.configDir}/${caminho.slice(".obsidian/".length)}` : caminho;
+    const adapter = this.app.vault.adapter;
+    if (!(await adapter.exists(real))) {
+      const dir = real.split("/").slice(0, -1).join("/");
+      if (ehConfig) { if (!(await adapter.exists(dir))) await adapter.mkdir(dir); await adapter.write(real, conteudo); }
+      else { if (dir) await this.garantirPasta(dir); await this.app.vault.create(real, conteudo); }
+      return "criado";
+    }
+    const atual = await adapter.read(real);
+    const cabecalho = atual.startsWith("---") ? atual.split(/\n---\s*\n/)[0] : "";
+    const telaDoSistema = (ehConfig && /^\.obsidian\/snippets\/[^/]+\.css$/.test(caminho))
+      || (caminho.startsWith("05 - Sistema/Painéis/") && caminho.endsWith(".base"))
+      || (caminho.endsWith(".md") && /cssclasses:[\s\S]*\bsc-(painel|app)\b/.test(cabecalho));
+    if (!telaDoSistema) return "recusado: só telas do sistema podem ser substituídas";
+    if (atual === conteudo) return "substituído (sem mudanças)";
+    const carimbo = new Date().toISOString().slice(0, 16).replace("T", " ").replace(":", "h");
+    const nomeBackup = (ehConfig ? "config-" + caminho.slice(".obsidian/".length) : caminho).replace(/\//g, " ∕ ");
+    const pastaBackup = `05 - Sistema/Backups/${carimbo}`;
+    await this.garantirPasta(pastaBackup);
+    let destino = `${pastaBackup}/${nomeBackup}`;
+    for (let i = 2; await adapter.exists(destino); i++) destino = `${pastaBackup}/${i} - ${nomeBackup}`;
+    await this.app.vault.create(destino, atual);
+    if (ehConfig) await adapter.write(real, conteudo);
+    else {
+      const f = this.app.vault.getAbstractFileByPath(real);
+      if (f instanceof TFile) await this.app.vault.modify(f, conteudo); else await adapter.write(real, conteudo);
+    }
+    return `substituído (backup em ${destino})`;
+  }
+
   async aplicarPedidos() {
-    const pend = await this.rest("GET", "pedidos_vault?select=id,caminho,conteudo&aplicado_em=is.null&order=criado_em&limit=50");
+    const pend = await this.rest("GET", "pedidos_vault?select=id,caminho,conteudo,acao&aplicado_em=is.null&order=criado_em&limit=50");
     if (!pend?.length) return 0;
     let n = 0;
     for (const p of pend) {
@@ -274,6 +310,9 @@ module.exports = class PonteSegundoCerebro extends Plugin {
         const caminho = normalizePath(p.caminho);
         if (!caminhoSeguro(caminho)) {
           resultado = "recusado: caminho não permitido";
+        } else if (p.acao === "substituir") {
+          resultado = await this.substituirComBackup(caminho, p.conteudo);
+          if (resultado.startsWith("substituído") || resultado === "criado") n++;
         } else if (caminho.startsWith(".obsidian/")) {
           const real = `${this.app.vault.configDir}/${caminho.slice(".obsidian/".length)}`;
           const dir = real.split("/").slice(0, -1).join("/");
