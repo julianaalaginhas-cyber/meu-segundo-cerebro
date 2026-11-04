@@ -1,7 +1,7 @@
 {
   "id": "ponte-segundo-cerebro",
   "name": "Ponte Segundo Cérebro",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "minAppVersion": "1.5.0",
   "description": "Mantém uma cópia pesquisável das notas no Supabase para o Claude e o ChatGPT consultarem, e traz para a Entrada o que as IAs salvarem.",
   "author": "Meu Segundo Cérebro",

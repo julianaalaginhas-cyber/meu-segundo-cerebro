@@ -26,6 +26,9 @@ const DEFAULTS = {
 };
 const LS_SESSAO = "ponte-segundo-cerebro:sessao";
 const LS_PRINCIPAL = "ponte-segundo-cerebro:principal";
+const LS_CONFIG = "ponte-segundo-cerebro:config-aplicada";
+const NOTA_CONFIG = "05 - Sistema/⚙️ Configuração do Segundo Cérebro.md";
+const NOTA_RESULTADO = "05 - Sistema/⚙️ Resultado da configuração.md";
 const MAX_CHARS = 200000;
 
 function caminhoSeguro(c) {
@@ -53,6 +56,7 @@ module.exports = class PonteSegundoCerebro extends Plugin {
     this.addCommand({ id: "sincronizar", name: "Sincronizar agora", callback: () => this.sincronizarTudo(true) });
     this.addCommand({ id: "entrar", name: "Entrar (login)", callback: () => this.abrirConfig() });
     this.addCommand({ id: "sair", name: "Sair (desconectar este aparelho)", callback: () => this.sair() });
+    this.addCommand({ id: "configurar", name: "Aplicar configuração (favoritos, início, captura, diário)", callback: () => this.aplicarConfiguracao(true) });
 
     this.registerEvent(this.app.metadataCache.on("changed", (f) => this.agendar(f.path, "upsert")));
     this.registerEvent(this.app.vault.on("delete", (f) => { if (f instanceof TFile) this.agendar(f.path, "delete"); }));
@@ -234,6 +238,7 @@ module.exports = class PonteSegundoCerebro extends Plugin {
         }
         importadas = await this.importarMemorias();
         criados = await this.aplicarPedidos();
+        await this.aplicarConfiguracao(false);
       }
       this.setStatus(`🧠 ${new Date().toLocaleTimeString().slice(0, 5)}`);
       if (manual) new Notice(`Segundo Cérebro sincronizado: ${enviadas} enviadas, ${removidas} removidas, ${importadas} trazidas para a Entrada, ${criados} arquivo(s) criados pelo Claude.`);
@@ -250,7 +255,7 @@ module.exports = class PonteSegundoCerebro extends Plugin {
   async verificarPedidos() {
     if (!this.principal || !this.sessao || this.ocupado || !this.settings.supabaseUrl) return;
     this.ocupado = true;
-    try { await this.aplicarPedidos(); } catch (e) { console.warn("[Segundo Cérebro] pedidos:", e.message); }
+    try { await this.aplicarPedidos(); await this.aplicarConfiguracao(false); } catch (e) { console.warn("[Segundo Cérebro] pedidos:", e.message); }
     finally { this.ocupado = false; }
   }
 
@@ -298,6 +303,136 @@ module.exports = class PonteSegundoCerebro extends Plugin {
       if (f instanceof TFile) await this.app.vault.modify(f, conteudo); else await adapter.write(real, conteudo);
     }
     return `substituído (backup em ${destino})`;
+  }
+
+  // ---------- configuração do Obsidian (favoritos, página inicial, captura, diário) ----------
+  // Lê o bloco JSON da nota de configuração. Aplica uma vez por versão, só no dispositivo
+  // principal (ou quando a usuária roda o comando). Sempre guarda cópia dos arquivos antes.
+  async lerJsonConfig(rel) {
+    const real = `${this.app.vault.configDir}/${rel}`;
+    if (!(await this.app.vault.adapter.exists(real))) return null;
+    try { return JSON.parse(await this.app.vault.adapter.read(real)); } catch { return null; }
+  }
+  async gravarJsonConfig(rel, dados, pastaBackup) {
+    const adapter = this.app.vault.adapter;
+    const real = `${this.app.vault.configDir}/${rel}`;
+    if (await adapter.exists(real)) {
+      await this.garantirPasta(pastaBackup);
+      let destino = `${pastaBackup}/config-${rel.replace(/\//g, " ∕ ")}`;
+      for (let i = 2; await adapter.exists(destino); i++) destino = `${pastaBackup}/${i} - config-${rel.replace(/\//g, " ∕ ")}`;
+      await this.app.vault.create(destino, await adapter.read(real));
+    }
+    const dir = real.split("/").slice(0, -1).join("/");
+    if (!(await adapter.exists(dir))) await adapter.mkdir(dir);
+    await adapter.write(real, JSON.stringify(dados, null, 2));
+  }
+  async recarregarPlugin(id, antesDeLigar) {
+    const pl = this.app.plugins;
+    const estava = !!pl.plugins[id];
+    if (estava) await pl.disablePlugin(id);
+    await antesDeLigar();
+    if (pl.enablePluginAndSave) await pl.enablePluginAndSave(id); else await pl.enablePlugin(id);
+    return estava;
+  }
+
+  async aplicarConfiguracao(manual) {
+    const f = this.app.vault.getAbstractFileByPath(NOTA_CONFIG);
+    if (!(f instanceof TFile)) { if (manual) new Notice("Segundo Cérebro: nota de configuração não encontrada."); return; }
+    if (!manual && !this.principal) return;
+    let cfg;
+    try { cfg = JSON.parse((await this.app.vault.read(f)).match(/```json\n([\s\S]*?)\n```/)[1]); }
+    catch (e) { if (manual) new Notice("Segundo Cérebro: a configuração está com erro de formato."); return; }
+    const aplicada = Number(this.app.loadLocalStorage(LS_CONFIG) || 0);
+    if (!manual && Number(cfg.versao) <= aplicada) return;
+
+    const carimbo = new Date().toISOString().slice(0, 16).replace("T", " ").replace(":", "h");
+    const backup = `05 - Sistema/Backups/${carimbo} configuração`;
+    const log = [];
+    const passo = async (nome, fn) => {
+      try { log.push(`✅ ${nome}: ${(await fn()) || "ok"}`); }
+      catch (e) { log.push(`⚠️ ${nome}: ${String(e && e.message || e).slice(0, 160)}`); }
+    };
+    const internos = this.app.internalPlugins;
+    const ligarInterno = async (id) => {
+      const w = internos?.plugins?.[id];
+      if (w && !w.enabled) { if (w.enable) await w.enable(true); }
+      return w;
+    };
+
+    if (Array.isArray(cfg.pastas)) await passo("Pastas", async () => {
+      for (const pasta of cfg.pastas) if (typeof pasta === "string" && caminhoSeguro(pasta + "/x.md")) await this.garantirPasta(pasta);
+      return cfg.pastas.join(", ");
+    });
+
+    if (cfg.diario) await passo("Diário (notas diárias)", async () => {
+      await this.garantirPasta(cfg.diario.pasta);
+      const w = await ligarInterno("daily-notes");
+      const atual = (await this.lerJsonConfig("daily-notes.json")) || {};
+      const novo = { ...atual, folder: cfg.diario.pasta, template: cfg.diario.modelo, format: cfg.diario.formato };
+      await this.gravarJsonConfig("daily-notes.json", novo, backup);
+      if (w?.instance?.options) Object.assign(w.instance.options, novo);
+      return `pasta ${cfg.diario.pasta}`;
+    });
+
+    if (cfg.favoritos) await passo("Favoritos (menu lateral)", async () => {
+      const w = await ligarInterno("bookmarks");
+      const atual = (await this.lerJsonConfig("bookmarks.json")) || { items: [] };
+      const itens = Array.isArray(atual.items) ? atual.items : [];
+      const base = Date.now();
+      const grupo = { type: "group", ctime: base, title: cfg.favoritos.grupo,
+        items: cfg.favoritos.itens.map((x, i) => ({ type: "file", ctime: base + i + 1, path: x.caminho, title: x.titulo, ...(x.subpath ? { subpath: x.subpath } : {}) })) };
+      const outros = itens.filter((x) => !(x.type === "group" && x.title === cfg.favoritos.grupo));
+      const novo = { ...atual, items: [grupo, ...outros] };
+      const inst = w?.instance;
+      if (inst && Array.isArray(inst.items) && typeof inst.saveData === "function") {
+        await this.gravarJsonConfig("bookmarks.json", atual, backup); // backup + mantém arquivo igual
+        inst.items.splice(0, inst.items.length, ...novo.items);
+        await inst.saveData();
+        if (inst.onItemsChanged) inst.onItemsChanged(true);
+        if (inst.trigger) inst.trigger("changed");
+      } else {
+        if (w?.disable) await w.disable(true);
+        await this.gravarJsonConfig("bookmarks.json", novo, backup);
+        if (w?.enable) await w.enable(true);
+      }
+      return `${grupo.items.length} atalhos (seus favoritos anteriores foram mantidos)`;
+    });
+
+    if (cfg.inicio) await passo("Página inicial (Homepage)", async () => {
+      if (!this.app.plugins.manifests?.homepage) return "plugin Homepage não instalado — pulei";
+      await this.recarregarPlugin("homepage", async () => {
+        const atual = await this.lerJsonConfig("plugins/homepage/data.json");
+        const base = atual && atual.version === 5 ? atual : { version: 5, homepages: {}, separateMobile: false, ...(atual?.version === 5 ? atual : {}) };
+        const hp = base.homepages?.["Main Homepage"] || {};
+        base.homepages = { ...(base.homepages || {}), "Main Homepage": {
+          value: "Home.md", kind: "File", openOnStartup: true, openMode: "Replace all open notes", manualOpenMode: "Keep open notes",
+          view: "Default view", revertView: true, openWhenEmpty: false, openOnNewTab: false, refreshDataview: false, autoCreate: false,
+          autoScroll: false, pin: false, commands: [], alwaysApply: false, hideReleaseNotes: false,
+          ...hp, value: cfg.inicio.nota + ".md", kind: "File", openOnStartup: true, view: cfg.inicio.modo } };
+        await this.gravarJsonConfig("plugins/homepage/data.json", base, backup);
+      });
+      return `abre "${cfg.inicio.nota}" em modo leitura`;
+    });
+
+    if (cfg.captura) await passo("Captura rápida (QuickAdd)", async () => {
+      if (!this.app.plugins.manifests?.quickadd) return "plugin QuickAdd não instalado — pulei";
+      let n = 0;
+      await this.recarregarPlugin("quickadd", async () => {
+        const atual = (await this.lerJsonConfig("plugins/quickadd/data.json")) || {};
+        const ids = new Set(cfg.captura.escolhas.map((c) => c.id));
+        const mantidas = (Array.isArray(atual.choices) ? atual.choices : []).filter((c) => !ids.has(c.id));
+        const novo = { ...atual, choices: [...cfg.captura.escolhas, ...mantidas] };
+        if (cfg.captura.iconeNaBarra) novo.enableRibbonIcon = true;
+        n = cfg.captura.escolhas.length;
+        await this.gravarJsonConfig("plugins/quickadd/data.json", novo, backup);
+      });
+      return `${n} opções de captura (as suas anteriores foram mantidas)`;
+    });
+
+    this.app.saveLocalStorage(LS_CONFIG, String(cfg.versao));
+    const texto = `---\ntipo: configuracao\n---\n# ⚙️ Resultado da configuração\n\nVersão ${cfg.versao} aplicada em ${carimbo}.\n\n${log.map((l) => "- " + l).join("\n")}\n\nCópias dos arquivos anteriores: \`${backup}\`\n`;
+    await this.app.vault.adapter.write(NOTA_RESULTADO, texto);
+    new Notice("Segundo Cérebro configurado:\n" + log.join("\n"), 12000);
   }
 
   async aplicarPedidos() {
