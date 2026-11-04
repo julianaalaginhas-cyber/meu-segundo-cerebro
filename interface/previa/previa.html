@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Prévia — Minha Central</title>
+<style>
+  :root{
+    --bg:#ffffff; --side:#f7f6f3; --line:#ebe8e2; --txt:#2b2a28; --mut:#8a867e; --acc:#8a5cf5;
+    --rosa:#fde2ea; --rosa-t:#b8476f; --lilas:#e4e4fb; --lilas-t:#5357b8; --pessego:#fee7d3; --pessego-t:#b0651c;
+    --salvia:#e2eedd; --salvia-t:#4b7a49; --menta:#d5f3e7; --menta-t:#1f8263; --roxo:#ece3fa; --roxo-t:#7244b5;
+    --coral:#fde0d8; --coral-t:#c15237;
+  }
+  *{box-sizing:border-box} body{margin:0;font:14px/1.45 -apple-system,"Segoe UI",Inter,sans-serif;color:var(--txt);background:#e9e7e2}
+  .janela{display:flex;width:1360px;height:1010px;background:var(--bg);overflow:hidden}
+  .ribbon{width:44px;background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;gap:16px;padding-top:14px;color:var(--mut);font-size:16px}
+  .lateral{width:238px;background:var(--side);border-right:1px solid var(--line);padding:14px 10px}
+  .lateral h4{margin:4px 8px 10px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut)}
+  .lateral a{display:flex;gap:10px;align-items:center;padding:6px 10px;border-radius:8px;color:var(--txt);text-decoration:none;font-size:13.5px}
+  .lateral a.ativo{background:#ece8ff;color:#5b3fd1;font-weight:600}
+  .lateral .sep{height:1px;background:var(--line);margin:8px 6px}
+  .main{flex:1;overflow:hidden;display:flex;flex-direction:column}
+  .aba{height:36px;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 14px;color:var(--mut);font-size:12.5px;gap:8px}
+  .aba b{color:var(--txt);font-weight:600}
+  .nota{max-width:960px;margin:0 auto;padding:26px 30px 40px;width:100%}
+  h1{font-size:28px;margin:0;font-weight:800} .sub{color:var(--mut);margin:2px 0 20px}
+  h2{font-size:11.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--mut);margin:22px 0 8px;font-weight:700}
+  .grid2{display:grid;grid-template-columns:1.25fr 1fr;gap:18px}
+  .painel{border:1px solid var(--line);border-radius:14px;background:#fff;overflow:hidden}
+  .barra{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--mut)}
+  .tab{padding:4px 10px;border-radius:999px} .tab.on{background:#efeafd;color:#5b3fd1;font-weight:600}
+  .dia{padding:7px 14px;font-size:11.5px;font-weight:700;letter-spacing:.04em;color:var(--mut);background:#fbfaf8;border-top:1px solid var(--line)}
+  .dia.hoje{color:#5b3fd1;background:#f4f0ff}
+  .lin{display:flex;align-items:center;gap:10px;padding:8px 14px;border-top:1px solid #f2f0ec;font-size:13.5px}
+  .lin:first-of-type{border-top:0}
+  .ck{width:17px;height:17px;border:1.6px solid #c9c4ba;border-radius:5px;flex:none}
+  .ck.ok{background:#8a5cf5;border-color:#8a5cf5;position:relative} .ck.ok:after{content:"✓";color:#fff;font-size:12px;position:absolute;left:3px;top:-1px}
+  .feito{color:var(--mut);text-decoration:line-through}
+  .tag{font-size:11.5px;padding:2px 8px;border-radius:999px;margin-left:auto;white-space:nowrap}
+  .meta{font-size:12px;color:var(--mut);white-space:nowrap}
+  .prog{padding:14px 16px}
+  .prog .num{font-size:26px;font-weight:800;color:#5b3fd1} .prog .txt{color:var(--mut);font-size:12.5px}
+  .trilho{font-family:ui-monospace,Menlo,monospace;letter-spacing:1px;color:#8a5cf5;font-size:16px;margin:6px 0 2px}
+  .resumo{padding:7px 14px;border-top:1px solid var(--line);font-size:12px;color:var(--mut);background:#fbfaf8}
+  .cards{display:grid;grid-template-columns:repeat(7,1fr);gap:10px}
+  .card{border-radius:16px;padding:12px 12px 10px;min-height:78px;display:flex;flex-direction:column;justify-content:space-between}
+  .card .ic{font-size:22px} .card .t{font-weight:700;font-size:13px}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .mini .lin{padding:7px 12px;font-size:12.5px}
+  .mini .barra{padding:7px 12px;color:var(--txt);font-weight:700;font-size:12px}
+  .vazio{padding:10px 12px;color:var(--mut);font-size:12.5px}
+  .hab{display:grid;grid-template-columns:1.4fr repeat(7,1fr);font-size:12px;align-items:center}
+  .hab div{padding:5px 4px;text-align:center;border-top:1px solid #f2f0ec} .hab div:first-child,.hab .n{text-align:left;padding-left:12px}
+  .hab .h{color:var(--mut);font-size:10.5px;font-weight:700}
+  .bolinha{display:inline-block;width:11px;height:11px;border-radius:4px;background:#ece8e1} .bolinha.s{background:#8fd3b4}
+  .legenda{position:absolute;right:18px;bottom:14px;background:#2b2a28;color:#fff;font-size:12px;padding:6px 10px;border-radius:8px;opacity:.85}
+  /* iPhone */
+  .fone{width:390px;height:844px;background:#fff;border-radius:44px;overflow:hidden;border:10px solid #1d1d1f;position:relative}
+  .fone .nota{padding:18px 16px 30px}
+  .fone h1{font-size:22px}
+  .fone .cards{grid-template-columns:repeat(4,1fr);gap:8px} .fone .card{min-height:64px;padding:9px 8px;border-radius:14px} .fone .card .ic{font-size:18px} .fone .card .t{font-size:11px}
+  .topo-fone{height:44px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;color:var(--mut);font-size:13px;border-bottom:1px solid var(--line)}
+</style>
+</head>
+<body>
+
+<!-- ======================= COMPUTADOR ======================= -->
+<div class="janela" id="desktop" style="position:relative">
+  <div class="ribbon"><span>📁</span><span>🔍</span><span>⭐</span><span>📅</span><span>⚡</span></div>
+  <nav class="lateral">
+    <h4>⭐ Favoritos</h4>
+    <a class="ativo">🏠 Início</a><a>📅 Agenda</a><a>✅ Tarefas</a><a>🔁 Hábitos</a><a>😊 Humor e Gratidão</a><a>🏋️ Treinos</a><a>📚 Estudos</a>
+    <div class="sep"></div>
+    <a>🏡 Minha Vida</a><a>🛒 Casa e Compras</a><a>💰 Financeiro</a><a>⚖️ Trabalho</a><a>🚀 Projetos</a><a>📁 Documentos</a><a>📥 Entrada</a>
+  </nav>
+  <div class="main">
+    <div class="aba"><b>🏠 Minha Central</b> · modo leitura 📖</div>
+    <div class="nota">
+      <h1>🧠 Meu Segundo Cérebro</h1>
+      <div class="sub">Minha vida, minhas ideias e meus projetos.</div>
+
+      <div class="grid2">
+        <div>
+          <h2>📅 Minha semana</h2>
+          <div class="painel">
+            <div class="barra"><span class="tab on">Esta semana ▾</span><span style="margin-left:auto">5 resultados</span></div>
+            <div class="dia">SEG 02</div>
+            <div class="lin"><span class="ck ok"></span><span class="feito">Enviar minuta ao cliente</span><span class="meta" style="margin-left:auto">Trabalho</span></div>
+            <div class="dia">TER 03</div>
+            <div class="lin"><span class="ck ok"></span><span class="feito">Pagar escola</span><span class="meta" style="margin-left:auto">Financeiro</span></div>
+            <div class="dia hoje">● HOJE · QUA 04</div>
+            <div class="lin"><span class="ck"></span>Revisar contrato de parceria<span class="meta" style="margin-left:auto">Trabalho</span></div>
+            <div class="lin"><span class="ck ok"></span><span class="feito">Comprar presente</span><span class="meta" style="margin-left:auto">Família</span></div>
+            <div class="dia">QUI 05</div>
+            <div class="lin"><span class="ck"></span>Reunião com cliente<span class="meta">14:00</span><span class="meta" style="margin-left:auto">Trabalho</span></div>
+            <div class="dia">SEX 06</div>
+            <div class="lin"><span class="ck"></span>Vacina do Nicolas<span class="meta" style="margin-left:auto">Nicolas</span></div>
+          </div>
+        </div>
+        <div>
+          <h2>📈 Progresso de hoje</h2>
+          <div class="painel prog">
+            <div class="txt">Tarefas</div><div class="trilho">▓▓▓▓▓░░░░░ 50%</div><div class="txt" style="margin-bottom:8px">1 de 2</div>
+            <div class="txt">Hábitos</div><div class="trilho">▓▓▓▓▓▓▓░░░ 67%</div><div class="txt">2 de 3</div>
+          </div>
+          <h2>☀️ Meu dia</h2>
+          <div class="painel">
+            <div class="barra"><span class="tab on">Hoje ▾</span><span style="font-size:11.5px">(Hoje · Pendentes · Concluídas)</span></div>
+            <div class="lin"><span class="ck"></span>Revisar contrato de parceria<span class="meta">alta</span></div>
+            <div class="lin"><span class="ck ok"></span><span class="feito">Comprar presente</span><span class="meta">média</span></div>
+          </div>
+          <h2>🔁 Hábitos de hoje</h2>
+          <div class="painel">
+            <div class="lin" style="gap:18px"><span style="color:var(--mut);font-size:12px">Hoje</span>
+              <span><span class="ck ok" style="display:inline-block;vertical-align:-3px"></span> Treinar</span>
+              <span><span class="ck ok" style="display:inline-block;vertical-align:-3px"></span> Ler</span>
+              <span><span class="ck" style="display:inline-block;vertical-align:-3px"></span> Água</span></div>
+          </div>
+        </div>
+      </div>
+
+      <h2>🧭 Áreas</h2>
+      <div class="cards">
+        <div class="card" style="background:var(--rosa)"><span class="ic">🏡</span><span class="t" style="color:var(--rosa-t)">Minha Vida</span></div>
+        <div class="card" style="background:var(--lilas)"><span class="ic">⚖️</span><span class="t" style="color:var(--lilas-t)">Trabalho</span></div>
+        <div class="card" style="background:var(--pessego)"><span class="ic">🚀</span><span class="t" style="color:var(--pessego-t)">Projetos</span></div>
+        <div class="card" style="background:var(--salvia)"><span class="ic">📚</span><span class="t" style="color:var(--salvia-t)">Conhecimento</span></div>
+        <div class="card" style="background:var(--menta)"><span class="ic">💰</span><span class="t" style="color:var(--menta-t)">Financeiro</span></div>
+        <div class="card" style="background:var(--roxo)"><span class="ic">📅</span><span class="t" style="color:var(--roxo-t)">Planejamento</span></div>
+        <div class="card" style="background:var(--coral)"><span class="ic">📥</span><span class="t" style="color:var(--coral-t)">Entrada</span></div>
+      </div>
+
+      <h2>🔭 Visão geral</h2>
+      <div class="grid4">
+        <div class="painel mini"><div class="barra">⏳ Vencimentos</div>
+          <div class="lin">🔧 Máquina de lavar<span class="meta" style="margin-left:auto">21/04</span></div>
+          <div class="lin">🪪 RG do Nicolas<span class="meta" style="margin-left:auto">12/12</span></div></div>
+        <div class="painel mini"><div class="barra">💳 Contas da semana</div>
+          <div class="lin">Conta de luz<span class="meta" style="margin-left:auto">R$ —</span></div>
+          <div class="resumo">Total: soma real dos lançamentos</div></div>
+        <div class="painel mini"><div class="barra">🚀 Projetos ativos</div>
+          <div class="lin">Meu Segundo Cérebro<span class="meta" style="margin-left:auto">planejamento</span></div></div>
+        <div class="painel mini"><div class="barra">🔁 Hábitos da semana</div>
+          <div class="hab">
+            <div class="h n"></div><div class="h">S</div><div class="h">T</div><div class="h">Q</div><div class="h">Q</div><div class="h">S</div><div class="h">S</div><div class="h">D</div>
+            <div class="n">Treinar</div><div><i class="bolinha s"></i></div><div><i class="bolinha"></i></div><div><i class="bolinha s"></i></div><div></div><div></div><div></div><div></div>
+            <div class="n">Ler</div><div><i class="bolinha s"></i></div><div><i class="bolinha s"></i></div><div><i class="bolinha s"></i></div><div></div><div></div><div></div><div></div>
+          </div></div>
+      </div>
+    </div>
+  </div>
+  <div class="legenda">Prévia fiel ao que o Obsidian faz · dados de EXEMPLO</div>
+</div>
+
+<!-- ======================= IPHONE ======================= -->
+<div style="display:flex;gap:30px;padding:30px;background:#e9e7e2;width:900px" id="mobile">
+  <div class="fone">
+    <div class="topo-fone"><span>☰</span><span>🏠 Minha Central</span><span>📖</span></div>
+    <div class="nota">
+      <h1>🧠 Meu Segundo Cérebro</h1>
+      <div class="sub">Minha vida, minhas ideias e meus projetos.</div>
+      <h2>📈 Progresso de hoje</h2>
+      <div class="painel prog" style="padding:10px 14px"><div class="txt">Tarefas <span class="trilho" style="font-size:13px">▓▓▓▓▓░░░░░ 50%</span></div><div class="txt">Hábitos <span class="trilho" style="font-size:13px">▓▓▓▓▓▓▓░░░ 67%</span></div></div>
+      <h2>☀️ Meu dia</h2>
+      <div class="painel">
+        <div class="barra"><span class="tab on">Hoje ▾</span><span style="font-size:11.5px">(Hoje · Pendentes · Concluídas)</span></div>
+        <div class="lin"><span class="ck"></span>Revisar contrato</div>
+        <div class="lin"><span class="ck ok"></span><span class="feito">Comprar presente</span></div>
+      </div>
+      <h2>🧭 Áreas</h2>
+      <div class="cards">
+        <div class="card" style="background:var(--rosa)"><span class="ic">🏡</span><span class="t" style="color:var(--rosa-t)">Vida</span></div>
+        <div class="card" style="background:var(--lilas)"><span class="ic">⚖️</span><span class="t" style="color:var(--lilas-t)">Trabalho</span></div>
+        <div class="card" style="background:var(--pessego)"><span class="ic">🚀</span><span class="t" style="color:var(--pessego-t)">Projetos</span></div>
+        <div class="card" style="background:var(--salvia)"><span class="ic">📚</span><span class="t" style="color:var(--salvia-t)">Estudos</span></div>
+        <div class="card" style="background:var(--menta)"><span class="ic">💰</span><span class="t" style="color:var(--menta-t)">Finanças</span></div>
+        <div class="card" style="background:var(--roxo)"><span class="ic">📅</span><span class="t" style="color:var(--roxo-t)">Agenda</span></div>
+        <div class="card" style="background:var(--coral)"><span class="ic">📥</span><span class="t" style="color:var(--coral-t)">Entrada</span></div>
+      </div>
+      <h2>📅 Minha semana</h2>
+      <div class="painel">
+        <div class="dia hoje">● HOJE · QUA 04</div>
+        <div class="lin"><span class="ck"></span>Revisar contrato</div>
+      </div>
+    </div>
+  </div>
+  <div class="fone">
+    <div class="topo-fone"><span>✕</span><span>Favoritos</span><span></span></div>
+    <nav class="lateral" style="width:100%;background:#fff;border:0;padding:14px 16px">
+      <h4>⭐ Favoritos</h4>
+      <a class="ativo">🏠 Início</a><a>📅 Agenda</a><a>✅ Tarefas</a><a>🔁 Hábitos</a><a>😊 Humor e Gratidão</a><a>🏋️ Treinos</a><a>📚 Estudos</a>
+      <div class="sep"></div>
+      <a>🏡 Minha Vida</a><a>🛒 Casa e Compras</a><a>💰 Financeiro</a><a>⚖️ Trabalho</a><a>🚀 Projetos</a><a>📁 Documentos</a><a>📥 Entrada</a>
+      <div class="sep"></div>
+      <a style="color:#5b3fd1;font-weight:600">⚡ Capturar (QuickAdd)</a>
+    </nav>
+  </div>
+</div>
+</body>
+</html>
