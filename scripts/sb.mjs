@@ -1,11 +1,10 @@
 // Utilitários para a API de gerenciamento do Supabase.
-// Lê o token SOMENTE da variável de ambiente SUPABASE_ACCESS_TOKEN. Nunca imprime segredos.
+// O token vem do cofre do ambiente (injetado pelo proxy em api.supabase.com) ou,
+// se existir, da variável SUPABASE_ACCESS_TOKEN. Nunca imprime segredos.
 export const PROJECT_NAME = process.env.SUPABASE_PROJECT_NAME ?? "meu-segundo-cerebro";
-const TOKEN = process.env.SUPABASE_ACCESS_TOKEN;
-if (!TOKEN) {
-  console.error("Falta a variável SUPABASE_ACCESS_TOKEN (configure nos segredos do ambiente).");
-  process.exit(2);
-}
+// Sem token local, enviamos um marcador no formato aceito pelo CLI; o proxy troca pelo token real.
+export const PLACEHOLDER = "sbp_" + "0".repeat(40);
+const TOKEN = process.env.SUPABASE_ACCESS_TOKEN || PLACEHOLDER;
 const API = "https://api.supabase.com/v1";
 
 export async function api(path, { method = "GET", body } = {}) {

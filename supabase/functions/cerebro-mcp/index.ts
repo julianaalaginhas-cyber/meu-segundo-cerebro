@@ -81,8 +81,14 @@ async function authenticate(req: Request): Promise<Auth | Response> {
 
   // getClaims valida assinatura e expiração (JWKS para chaves assimétricas;
   // consulta o Auth do Supabase quando o projeto ainda usa chave simétrica).
-  const { data, error } = await db.auth.getClaims(token);
-  const claims = data?.claims as Record<string, unknown> | undefined;
+  let claims: Record<string, unknown> | undefined;
+  try {
+    const { data, error } = await db.auth.getClaims(token);
+    if (!error) claims = data?.claims as Record<string, unknown> | undefined;
+  } catch {
+    claims = undefined; // token malformado
+  }
+  const error = !claims;
   if (error || !claims?.sub) return unauthorized("invalid_token", "Token invalido ou expirado");
   if (claims.role !== "authenticated") return unauthorized("invalid_token", "Token sem papel autenticado");
 

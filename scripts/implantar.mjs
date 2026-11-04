@@ -2,7 +2,7 @@
 // Não apaga nada. Gera consentimento/config.js com dados PÚBLICOS (URL + chave publishable).
 import { readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { project, sql, keys } from "./sb.mjs";
+import { project, sql, keys, PLACEHOLDER } from "./sb.mjs";
 
 const p = await project();
 console.log("Projeto:", p.name, p.ref);
@@ -13,8 +13,9 @@ for (const f of ["20261104000001_busca_memorias.sql", "20261104000002_notas_obsi
 }
 
 execFileSync("npx", ["-y", "supabase@3.0.0", "functions", "deploy", "cerebro-mcp",
-  "--project-ref", p.ref, "--no-verify-jwt", "--use-api"],
-  { stdio: "inherit", cwd: new URL("..", import.meta.url).pathname });
+  "--project-ref", p.ref, "--no-verify-jwt", "--use-api", "--yes"],
+  { stdio: "inherit", cwd: new URL("..", import.meta.url).pathname,
+    env: { ...process.env, SUPABASE_ACCESS_TOKEN: process.env.SUPABASE_ACCESS_TOKEN || PLACEHOLDER } });
 console.log("✔ Edge Function publicada:", `${p.url}/functions/v1/cerebro-mcp`);
 
 const k = await keys(p.ref);
