@@ -7,9 +7,10 @@ import { project, sql, keys } from "./sb.mjs";
 const p = await project();
 console.log("Projeto:", p.name, p.ref);
 
-const mig = readFileSync(new URL("../supabase/migrations/20261104000001_busca_memorias.sql", import.meta.url), "utf8");
-await sql(p.ref, mig);
-console.log("✔ Função SQL buscar_memorias aplicada (security invoker, RLS preservado)");
+for (const f of ["20261104000001_busca_memorias.sql", "20261104000002_notas_obsidian.sql"]) {
+  await sql(p.ref, readFileSync(new URL(`../supabase/migrations/${f}`, import.meta.url), "utf8"));
+  console.log("✔ SQL aplicado:", f, "(sem apagar nada; RLS preservado)");
+}
 
 execFileSync("npx", ["-y", "supabase@3.0.0", "functions", "deploy", "cerebro-mcp",
   "--project-ref", p.ref, "--no-verify-jwt", "--use-api"],
@@ -21,3 +22,14 @@ writeFileSync(new URL("../consentimento/config.js", import.meta.url),
   `// Dados públicos (a chave publishable é feita para ficar no navegador; o RLS protege os dados).\n` +
   `export default ${JSON.stringify({ supabaseUrl: p.url, supabaseKey: k.publishable }, null, 2)};\n`);
 console.log("✔ consentimento/config.js gerado");
+
+// Plugin do Obsidian já configurado com a URL e a chave PÚBLICA do projeto.
+const { mkdirSync, copyFileSync } = await import("node:fs");
+const dist = new URL("../obsidian-plugin/dist/", import.meta.url);
+mkdirSync(dist, { recursive: true });
+const main = readFileSync(new URL("../obsidian-plugin/main.js", import.meta.url), "utf8")
+  .replace('supabaseUrl: "",', `supabaseUrl: ${JSON.stringify(p.url)},`)
+  .replace('supabaseKey: "",', `supabaseKey: ${JSON.stringify(k.publishable)},`);
+writeFileSync(new URL("main.js", dist), main);
+copyFileSync(new URL("../obsidian-plugin/manifest.json", import.meta.url), new URL("manifest.json", dist));
+console.log("✔ Plugin do Obsidian pronto em obsidian-plugin/dist/");

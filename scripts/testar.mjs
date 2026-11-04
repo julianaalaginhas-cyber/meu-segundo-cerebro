@@ -65,7 +65,7 @@ try {
   const semToken = await rpc(null, "tools/list");
   check("sem token → 401", semToken.status === 401, String(semToken.status));
   check("401 indica onde autenticar (WWW-Authenticate)", /resource_metadata=/.test(semToken.www ?? ""));
-  const lixo = await rpc("abc.def.ghi", "tools/call", { name: "buscar_memorias", arguments: { consulta: "girafa" } });
+  const lixo = await rpc("abc.def.ghi", "tools/call", { name: "buscar", arguments: { consulta: "girafa" } });
   check("token falso → 401", lixo.status === 401, String(lixo.status));
   const anonKey = await rpc(k.publishable, "tools/list");
   check("chave pública sozinha não dá acesso → 401", anonKey.status === 401, String(anonKey.status));
@@ -76,14 +76,26 @@ try {
   const init = await rpc(A.token, "initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "teste", version: "1" } });
   check("initialize funciona com token válido", init.status === 200 && init.body.result?.serverInfo?.name === "meu-segundo-cerebro", JSON.stringify(init.body).slice(0, 200));
   const lista = await rpc(A.token, "tools/list");
-  check("lista de ferramentas", lista.body.result?.tools?.some((t) => t.name === "buscar_memorias"));
+  check("lista de ferramentas", lista.body.result?.tools?.some((t) => t.name === "buscar"));
   const salvar = await rpc(B.token, "tools/call", { name: "salvar_memoria", arguments: { titulo: "Segredo da B", conteudo: "O pinguim fictício da B se chama Zacarias.", categoria: "teste", fonte: "teste_automatico" } });
   check("B consegue salvar memória própria", salvar.body.result && !salvar.body.result.isError, JSON.stringify(salvar.body).slice(0, 200));
-  const bVe = await rpc(B.token, "tools/call", { name: "buscar_memorias", arguments: { consulta: "pinguim" } });
+  const bVe = await rpc(B.token, "tools/call", { name: "buscar", arguments: { consulta: "pinguim" } });
   check("B encontra a própria memória", /Zacarias/.test(JSON.stringify(bVe.body)));
-  const aVe = await rpc(A.token, "tools/call", { name: "buscar_memorias", arguments: { consulta: "pinguim Zacarias" } });
+  const aVe = await rpc(A.token, "tools/call", { name: "buscar", arguments: { consulta: "pinguim Zacarias" } });
   check("A NÃO vê a memória da B", aVe.body.result && !/Zacarias/.test(JSON.stringify(aVe.body)), JSON.stringify(aVe.body).slice(0, 200));
-  const aAurora = await rpc(A.token, "tools/call", { name: "buscar_memorias", arguments: { consulta: "girafa" } });
+  // nota sincronizada (como o plugin do Obsidian faz) — dados fictícios
+  const nota = await fetch(`${p.url}/rest/v1/notas?on_conflict=usuario_id,caminho`, { method: "POST",
+    headers: { apikey: k.publishable, Authorization: `Bearer ${A.token}`, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify([{ usuario_id: A.id, caminho: "01 - Vida/Pessoas/Fulano Teste.md", titulo: "Fulano Teste", conteudo: "Pessoa fictícia de teste.",
+      propriedades: { tipo: "pessoa", cpf: "000.000.000-00", proxima_consulta: new Date(Date.now() + 10 * 864e5).toISOString().slice(0, 10) }, hash: "teste" }]) });
+  check("A sincroniza uma nota (como o plugin)", nota.ok, String(nota.status));
+  const cpf = await rpc(A.token, "tools/call", { name: "buscar", arguments: { consulta: "Fulano cpf" } });
+  check("A encontra o CPF fictício na nota", /000\.000\.000-00/.test(JSON.stringify(cpf.body)));
+  const datas = await rpc(A.token, "tools/call", { name: "datas", arguments: { dias_a_frente: 30 } });
+  check("ferramenta de datas acha a próxima consulta", /proxima_consulta/.test(JSON.stringify(datas.body)), JSON.stringify(datas.body).slice(0, 200));
+  const bCpf = await rpc(B.token, "tools/call", { name: "buscar", arguments: { consulta: "Fulano cpf" } });
+  check("B NÃO vê a nota da A", !/000\.000\.000-00/.test(JSON.stringify(bCpf.body)));
+  const aAurora = await rpc(A.token, "tools/call", { name: "buscar", arguments: { consulta: "girafa" } });
   check("A NÃO vê a memória da Aurora (que é da dona do cérebro)", !/Aurora/.test(JSON.stringify(aAurora.body)));
 
   console.log("\n4) Fluxo OAuth completo (como o Claude/ChatGPT fazem), com app de teste");
@@ -111,9 +123,9 @@ try {
     const tok = await fetch(`${AUTH}/oauth/token`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "authorization_code", code: back?.searchParams.get("code") ?? "", redirect_uri: redirect, client_id: client.client_id, code_verifier: verifier }) }).then((r) => r.json());
     check("troca do código por token (PKCE)", Boolean(tok.access_token), JSON.stringify(tok).slice(0, 200));
     check("token de renovação emitido (evita relogar toda hora)", Boolean(tok.refresh_token));
-    const viaOAuth = await rpc(tok.access_token, "tools/call", { name: "buscar_memorias", arguments: { consulta: "" } });
+    const viaOAuth = await rpc(tok.access_token, "tools/call", { name: "buscar", arguments: { consulta: "" } });
     check("token OAuth acessa o MCP", viaOAuth.status === 200 && viaOAuth.body.result && !viaOAuth.body.result.isError, JSON.stringify(viaOAuth.body).slice(0, 200));
-    const tokB = await rpc(tok.access_token, "tools/call", { name: "buscar_memorias", arguments: { consulta: "Zacarias" } });
+    const tokB = await rpc(tok.access_token, "tools/call", { name: "buscar", arguments: { consulta: "Zacarias" } });
     check("token OAuth da A continua isolado da B", !/Zacarias/.test(JSON.stringify(tokB.body)));
   }
 } catch (e) {

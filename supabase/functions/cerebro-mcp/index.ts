@@ -99,17 +99,19 @@ const READ_ONLY = { readOnlyHint: true, destructiveHint: false, openWorldHint: f
 
 const TOOLS = [
   {
-    name: "buscar_memorias",
-    title: "Buscar memórias",
+    name: "buscar",
+    title: "Buscar no Segundo Cérebro",
     description:
-      "Pesquisa no Segundo Cérebro da usuária (memórias pessoais, casa, família, trabalho, " +
-      "conhecimento, projetos). Use palavras-chave curtas em português. Retorna id, título, " +
-      "trecho, categoria e fonte. Use ler_memoria para ver o conteúdo completo.",
+      "Pesquisa no Segundo Cérebro da usuária: notas do Obsidian (pessoas, documentos, família, " +
+      "saúde, casa, trabalho jurídico, projetos, conhecimento, receitas) e memórias salvas. " +
+      "Use SEMPRE antes de responder perguntas sobre a vida, pessoas, documentos ou dados dela. " +
+      "Use palavras-chave curtas (ex.: 'Guy cpf', 'Nicolas vacina', 'máquina de lavar'). " +
+      "Retorna id, tipo, título, caminho, propriedades (frontmatter) e um trecho. " +
+      "Use 'ler' para o conteúdo completo.",
     inputSchema: {
       type: "object",
       properties: {
         consulta: { type: "string", description: "Palavras-chave. Vazio lista as mais recentes." },
-        categoria: { type: "string", description: "Filtrar por categoria (opcional)." },
         limite: { type: "integer", minimum: 1, maximum: 50, default: 10 },
       },
       required: ["consulta"],
@@ -118,30 +120,51 @@ const TOOLS = [
     annotations: READ_ONLY,
   },
   {
-    name: "ler_memoria",
-    title: "Ler memória",
-    description: "Retorna o conteúdo completo de uma memória pelo id.",
+    name: "ler",
+    title: "Ler nota ou memória",
+    description: "Retorna o conteúdo completo e as propriedades de uma nota/memória pelo id retornado em 'buscar'.",
     inputSchema: {
       type: "object",
-      properties: { id: { type: "string", description: "id (uuid) da memória" } },
+      properties: {
+        id: { type: "string", description: "id retornado por buscar (formato nota:<uuid> ou memoria:<uuid>)" },
+      },
       required: ["id"],
       additionalProperties: false,
     },
     annotations: READ_ONLY,
   },
   {
-    name: "salvar_memoria",
-    title: "Salvar memória",
+    name: "datas",
+    title: "Datas e prazos",
     description:
-      "Grava uma nova memória no Segundo Cérebro. Só use quando a usuária pedir " +
-      "explicitamente para salvar/registrar algo.",
+      "Lista datas registradas nas propriedades das notas (ex.: proxima_manutencao, proxima_dose, " +
+      "vencimento, prazo, garantia_ate), incluindo as já vencidas. Use para perguntas como " +
+      "'o que está para vencer?', 'quando é a próxima vacina?', 'faz quanto tempo da última manutenção?'. " +
+      "dias_ate negativo = já passou.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dias_a_frente: { type: "integer", minimum: 0, maximum: 3650, default: 60 },
+        dias_atras: { type: "integer", minimum: 0, maximum: 3650, default: 365 },
+      },
+      additionalProperties: false,
+    },
+    annotations: READ_ONLY,
+  },
+  {
+    name: "salvar_memoria",
+    title: "Salvar no Segundo Cérebro",
+    description:
+      "Registra uma informação nova. Ela aparece na pasta '00 - Entrada' do Obsidian da usuária. " +
+      "Só use quando ela pedir explicitamente para salvar/registrar/anotar algo. " +
+      "Inclua datas no formato AAAA-MM-DD no conteúdo quando houver.",
     inputSchema: {
       type: "object",
       properties: {
         titulo: { type: "string", maxLength: 300 },
         conteudo: { type: "string", maxLength: 20000 },
         categoria: { type: "string", maxLength: 100 },
-        fonte: { type: "string", maxLength: 200, description: "Ex.: claude, chatgpt" },
+        fonte: { type: "string", maxLength: 200, description: "claude ou chatgpt" },
       },
       required: ["titulo", "conteudo"],
       additionalProperties: false,
@@ -151,26 +174,16 @@ const TOOLS = [
   // Compatibilidade com o formato "search/fetch" usado pelo ChatGPT.
   {
     name: "search",
-    title: "Search (compatibilidade ChatGPT)",
-    description: "Pesquisa memórias do Segundo Cérebro por palavras-chave (mesmo que buscar_memorias).",
-    inputSchema: {
-      type: "object",
-      properties: { query: { type: "string" } },
-      required: ["query"],
-      additionalProperties: false,
-    },
+    title: "Search (ChatGPT)",
+    description: "Pesquisa o Segundo Cérebro da usuária (mesmo que 'buscar').",
+    inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"], additionalProperties: false },
     annotations: READ_ONLY,
   },
   {
     name: "fetch",
-    title: "Fetch (compatibilidade ChatGPT)",
-    description: "Retorna o conteúdo completo de uma memória pelo id (mesmo que ler_memoria).",
-    inputSchema: {
-      type: "object",
-      properties: { id: { type: "string" } },
-      required: ["id"],
-      additionalProperties: false,
-    },
+    title: "Fetch (ChatGPT)",
+    description: "Conteúdo completo de um resultado de 'search' pelo id (mesmo que 'ler').",
+    inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false },
     annotations: READ_ONLY,
   },
 ];
@@ -179,28 +192,33 @@ class ToolError extends Error {}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : undefined);
-const memoriaUrl = (id: string) => `${RESOURCE_URL}#memoria/${id}`;
+const itemUrl = (id: string) => `${RESOURCE_URL}#${id}`;
+const dbErr = (e: { code?: string }) => new Error(`db:${e.code ?? "erro"}`);
 
-async function buscar(auth: Auth, consulta: string, categoria?: string, limite = 10) {
-  const { data, error } = await auth.db.rpc("buscar_memorias", {
-    termo: consulta,
-    filtro_categoria: categoria ?? null,
-    limite,
-  });
-  if (error) throw new Error(`db:${error.code ?? "erro"}`);
-  return data as Array<Record<string, unknown>>;
+async function buscar(auth: Auth, consulta: string, limite = 10) {
+  const { data, error } = await auth.db.rpc("buscar_cerebro", { termo: consulta, limite });
+  if (error) throw dbErr(error);
+  return (data as Array<Record<string, unknown>>).map((r) => ({
+    id: `${r.tipo}:${r.id}`, tipo: r.tipo, titulo: r.titulo, caminho: r.caminho ?? undefined,
+    propriedades: r.propriedades, trecho: r.trecho, atualizado_em: r.atualizado_em,
+  }));
 }
 
-async function ler(auth: Auth, id: string) {
+async function ler(auth: Auth, rawId: string) {
+  const [tipo, id] = rawId.includes(":") ? rawId.split(":", 2) : ["", rawId];
   if (!UUID_RE.test(id)) throw new ToolError("id inválido");
-  const { data, error } = await auth.db
-    .from("memorias")
-    .select("id, titulo, conteudo, categoria, fonte, criado_em")
-    .eq("id", id)
-    .maybeSingle();
-  if (error) throw new Error(`db:${error.code ?? "erro"}`);
-  if (!data) throw new ToolError("Memória não encontrada");
-  return data;
+  if (tipo !== "memoria") {
+    const { data, error } = await auth.db.from("notas")
+      .select("id, caminho, titulo, conteudo, propriedades, modificado_em").eq("id", id).maybeSingle();
+    if (error) throw dbErr(error);
+    if (data) return { ...data, id: `nota:${data.id}`, tipo: "nota" };
+    if (tipo === "nota") throw new ToolError("Nota não encontrada");
+  }
+  const { data, error } = await auth.db.from("memorias")
+    .select("id, titulo, conteudo, categoria, fonte, criado_em").eq("id", id).maybeSingle();
+  if (error) throw dbErr(error);
+  if (!data) throw new ToolError("Não encontrado");
+  return { ...data, id: `memoria:${data.id}`, tipo: "memoria" };
 }
 
 function text(t: string, structured?: unknown) {
@@ -209,49 +227,42 @@ function text(t: string, structured?: unknown) {
 
 async function callTool(auth: Auth, name: string, args: Record<string, unknown>) {
   switch (name) {
-    case "buscar_memorias": {
-      const consulta = str(args.consulta, 500) ?? "";
+    case "buscar": {
       const limite = Math.min(Math.max(Number(args.limite ?? 10) || 10, 1), 50);
-      const rows = await buscar(auth, consulta, str(args.categoria, 100), limite);
-      const resultados = rows.map((r) => ({
-        id: r.id, titulo: r.titulo, trecho: r.trecho, categoria: r.categoria,
-        fonte: r.fonte, criado_em: r.criado_em,
-      }));
-      const msg = resultados.length
-        ? JSON.stringify(resultados, null, 2)
-        : "Nenhuma memória encontrada para essa busca.";
-      return text(msg, { resultados });
+      const resultados = await buscar(auth, str(args.consulta, 500) ?? "", limite);
+      return text(resultados.length ? JSON.stringify(resultados, null, 2) : "Nada encontrado para essa busca.", { resultados });
     }
-    case "ler_memoria":
+    case "ler":
       return text(JSON.stringify(await ler(auth, String(args.id ?? "")), null, 2));
+    case "datas": {
+      const { data, error } = await auth.db.rpc("datas_do_cerebro", {
+        dias_a_frente: Number(args.dias_a_frente ?? 60) || 60,
+        dias_atras: Number(args.dias_atras ?? 365) || 365,
+      });
+      if (error) throw dbErr(error);
+      const hoje = new Date().toISOString().slice(0, 10);
+      return text(JSON.stringify({ hoje, datas: data }, null, 2), { hoje, datas: data });
+    }
     case "salvar_memoria": {
       const titulo = str(args.titulo, 300)?.trim();
       const conteudo = str(args.conteudo, 20000)?.trim();
       if (!titulo || !conteudo) throw new ToolError("titulo e conteudo são obrigatórios");
-      const { data, error } = await auth.db
-        .from("memorias")
-        .insert({
-          usuario_id: auth.userId,
-          titulo,
-          conteudo,
-          categoria: str(args.categoria, 100) ?? null,
-          fonte: str(args.fonte, 200) ?? "mcp",
-        })
-        .select("id, titulo, criado_em")
-        .single();
-      if (error) throw new Error(`db:${error.code ?? "erro"}`);
-      return text(`Memória salva: ${JSON.stringify(data)}`);
+      const { data, error } = await auth.db.from("memorias").insert({
+        usuario_id: auth.userId, titulo, conteudo,
+        categoria: str(args.categoria, 100) ?? null, fonte: str(args.fonte, 200) ?? "mcp",
+      }).select("id, titulo, criado_em").single();
+      if (error) throw dbErr(error);
+      return text(`Salvo no Segundo Cérebro (vai aparecer em "00 - Entrada" no Obsidian): ${JSON.stringify(data)}`);
     }
     case "search": {
-      const rows = await buscar(auth, str(args.query, 500) ?? "", undefined, 10);
-      const results = rows.map((r) => ({ id: r.id, title: r.titulo, url: memoriaUrl(String(r.id)) }));
-      return text(JSON.stringify({ results }));
+      const rows = await buscar(auth, str(args.query, 500) ?? "", 10);
+      return text(JSON.stringify({ results: rows.map((r) => ({ id: r.id, title: r.titulo, url: itemUrl(r.id) })) }));
     }
     case "fetch": {
-      const m = await ler(auth, String(args.id ?? ""));
+      const m = await ler(auth, String(args.id ?? "")) as Record<string, unknown>;
       return text(JSON.stringify({
-        id: m.id, title: m.titulo, text: m.conteudo, url: memoriaUrl(m.id),
-        metadata: { categoria: m.categoria, fonte: m.fonte, criado_em: m.criado_em },
+        id: m.id, title: m.titulo, text: m.conteudo, url: itemUrl(String(m.id)),
+        metadata: m.propriedades ?? { categoria: m.categoria, fonte: m.fonte },
       }));
     }
     default:
@@ -282,9 +293,10 @@ async function handleRpc(auth: Auth, msg: RpcReq) {
           capabilities: { tools: { listChanged: false } },
           serverInfo: SERVER_INFO,
           instructions:
-            "Este é o Segundo Cérebro pessoal da usuária. Para perguntas sobre a vida, casa, " +
-            "família, trabalho, documentos ou ideias dela, pesquise aqui com buscar_memorias " +
-            "antes de responder, e cite o título da memória usada.",
+            "Este é o Segundo Cérebro pessoal da usuária (espelho do Obsidian dela). Para perguntas " +
+            "sobre a vida, pessoas, casa, família, trabalho, documentos ou ideias dela, pesquise aqui " +
+            "com 'buscar' (e 'datas' para prazos) " +
+            "antes de responder, e cite o título da nota usada.",
         });
         break;
       }

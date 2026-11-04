@@ -2,16 +2,27 @@
 
 Memória externa compartilhada entre Claude e ChatGPT, hospedada no Supabase (plano gratuito).
 
+## Como funciona
+```
+Obsidian (Windows/iPhone)  ──plugin "Ponte"──▶  Supabase (notas + memorias, RLS)  ◀──MCP──  Claude / ChatGPT
+   fonte da verdade        ◀── 00 - Entrada ──   (o que as IAs salvam volta para o Vault)
+```
+- O Vault é a fonte da verdade. A nuvem guarda uma cópia pesquisável, atualizada a cada alteração.
+- Funciona com o computador desligado (Supabase na nuvem) e no iPhone (app do Claude/ChatGPT).
+- Notas com `privado: true` e pastas excluídas nunca saem do Vault.
+
 ## Peças
 | Peça | Onde | Função |
 |---|---|---|
 | `public.memorias` + RLS | Supabase (já existia) | Guarda as memórias; cada usuária só vê as suas |
 | `buscar_memorias()` | `supabase/migrations/` | Busca por palavras (português), `security invoker` → RLS vale |
 | `cerebro-mcp` | `supabase/functions/` | Servidor MCP remoto; exige token OAuth; sem `service_role` |
+| `notas` + `buscar_cerebro()` + `datas_do_cerebro()` | `supabase/migrations/` | Espelho do Vault, busca única e prazos |
+| Plugin "Ponte Segundo Cérebro" | `obsidian-plugin/` | Envia notas, apaga/renomeia em espelho, traz memórias para a Entrada |
 | Página de consentimento | `consentimento/` | Tela "Permitir acesso?" exigida pelo OAuth Server do Supabase |
 
 ## Ferramentas MCP
-`buscar_memorias`, `ler_memoria`, `salvar_memoria`, e `search`/`fetch` (formato esperado pelo ChatGPT).
+`buscar`, `ler`, `datas`, `salvar_memoria`, e `search`/`fetch` (formato esperado pelo ChatGPT).
 
 ## Comandos (precisam de `SUPABASE_ACCESS_TOKEN` no ambiente)
 ```
