@@ -1,0 +1,7 @@
+# Configuração mínima para o Supabase CLI (deploy). Não contém segredos.
+project_id = "meu-segundo-cerebro"
+
+[functions.cerebro-mcp]
+# A função valida o token OAuth por conta própria; precisa aceitar a
+# descoberta pública (/.well-known/oauth-protected-resource).
+verify_jwt = false

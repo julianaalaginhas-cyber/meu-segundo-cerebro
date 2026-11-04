@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Meu Segundo Cérebro — Autorizar acesso</title>
+<style>
+  :root { --bg:#f6f5f2; --card:#fff; --fg:#1d1d1f; --muted:#6b6b70; --accent:#2f6b4f; --danger:#a3352b; --line:#e3e1dc; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#161617; --card:#222224; --fg:#f2f2f2; --muted:#a1a1a6; --accent:#6fc19a; --danger:#e88a80; --line:#38383a; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; }
+  main { max-width:420px; margin:8vh auto; padding:0 16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:24px; }
+  h1 { font-size:1.25rem; margin:0 0 4px; }
+  p.muted { color:var(--muted); margin:0 0 16px; font-size:.95rem; }
+  label { display:block; font-size:.9rem; margin:12px 0 4px; }
+  input { width:100%; padding:10px 12px; font:inherit; border:1px solid var(--line); border-radius:8px; background:transparent; color:inherit; }
+  button { width:100%; padding:11px; margin-top:16px; font:inherit; font-weight:600; border:0; border-radius:8px; cursor:pointer; background:var(--accent); color:#fff; }
+  button.secondary { background:transparent; color:var(--danger); border:1px solid var(--line); margin-top:8px; }
+  button:disabled { opacity:.6; cursor:default; }
+  .box { border:1px solid var(--line); border-radius:8px; padding:12px; margin:12px 0; font-size:.95rem; }
+  .box b { display:block; }
+  .msg { margin-top:12px; font-size:.9rem; color:var(--danger); min-height:1.2em; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1>🧠 Meu Segundo Cérebro</h1>
+    <p class="muted" id="sub">Carregando…</p>
+
+    <form id="login" class="hidden">
+      <label for="email">E-mail</label>
+      <input id="email" type="email" autocomplete="username" required>
+      <label for="senha">Senha</label>
+      <input id="senha" type="password" autocomplete="current-password" required>
+      <button type="submit">Entrar</button>
+      <button type="button" class="secondary" id="link">Receber link de acesso por e-mail</button>
+    </form>
+
+    <div id="consent" class="hidden">
+      <div class="box"><b id="app"></b><span class="muted" id="destino"></span></div>
+      <div class="box"><b>Poderá:</b>consultar e registrar memórias do seu Segundo Cérebro em seu nome (permissões: <span id="escopo"></span>).</div>
+      <p class="muted" id="quem"></p>
+      <button id="aprovar">Permitir</button>
+      <button id="negar" class="secondary">Negar</button>
+    </div>
+
+    <div class="msg" id="msg" role="alert"></div>
+  </div>
+</main>
+
+<script type="module">
+  import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.118.0/+esm";
+  import CONFIG from "./config.js";
+
+  const $ = (id) => document.getElementById(id);
+  const show = (id) => $(id).classList.remove("hidden");
+  const hide = (id) => $(id).classList.add("hidden");
+  const erro = (t) => { $("msg").textContent = t; };
+
+  const supabase = createClient(CONFIG.supabaseUrl, CONFIG.supabaseKey, {
+    auth: { persistSession: true, detectSessionInUrl: true, flowType: "pkce" },
+  });
+
+  const params = new URLSearchParams(location.search);
+  const authorizationId = params.get("authorization_id");
+
+  function safeRedirect(u) {
+    try {
+      const url = new URL(u);
+      if (url.protocol !== "https:" && url.hostname !== "localhost" && url.hostname !== "127.0.0.1") throw 0;
+      location.replace(url.href);
+    } catch { erro("Endereço de retorno inválido."); }
+  }
+
+  async function iniciar() {
+    if (!authorizationId) {
+      $("sub").textContent = "Esta página é usada quando o Claude ou o ChatGPT pedem acesso ao seu Segundo Cérebro.";
+      return;
+    }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      $("sub").textContent = "Entre para autorizar o acesso.";
+      show("login");
+      return;
+    }
+    hide("login");
+    const { data, error } = await supabase.auth.oauth.getAuthorizationDetails(authorizationId);
+    if (error) { $("sub").textContent = ""; erro("Pedido de autorização inválido ou expirado. Tente conectar novamente."); return; }
+    if (!data.authorization_id) { safeRedirect(data.redirect_url ?? data.redirect_uri); return; } // já autorizado
+    const destino = (() => { try { return new URL(data.redirect_uri).host; } catch { return data.redirect_uri; } })();
+    $("sub").textContent = "Um aplicativo quer acessar seu Segundo Cérebro.";
+    $("app").textContent = data.client?.name || data.client?.client_name || "Aplicativo";
+    $("destino").textContent = "Retorna para: " + destino;
+    $("escopo").textContent = data.scope || "padrão";
+    $("quem").textContent = "Conectado como " + user.email + ".";
+    show("consent");
+  }
+
+  $("login").addEventListener("submit", async (e) => {
+    e.preventDefault(); erro("");
+    const { error } = await supabase.auth.signInWithPassword({ email: $("email").value.trim(), password: $("senha").value });
+    if (error) { erro("E-mail ou senha incorretos."); return; }
+    iniciar();
+  });
+
+  $("link").addEventListener("click", async () => {
+    erro("");
+    const email = $("email").value.trim();
+    if (!email) { erro("Digite seu e-mail primeiro."); return; }
+    const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo: location.href } });
+    erro(error ? "Não foi possível enviar o link." : "Link enviado. Abra o e-mail neste mesmo aparelho.");
+  });
+
+  async function decidir(aprovar) {
+    $("aprovar").disabled = $("negar").disabled = true; erro("");
+    const fn = aprovar ? supabase.auth.oauth.approveAuthorization : supabase.auth.oauth.denyAuthorization;
+    const { data, error } = await fn(authorizationId);
+    if (error) { erro("Não foi possível concluir. Tente conectar novamente."); $("aprovar").disabled = $("negar").disabled = false; return; }
+    safeRedirect(data.redirect_url);
+  }
+  $("aprovar").addEventListener("click", () => decidir(true));
+  $("negar").addEventListener("click", () => decidir(false));
+
+  iniciar().catch(() => erro("Erro inesperado. Recarregue a página."));
+</script>
+</body>
+</html>
