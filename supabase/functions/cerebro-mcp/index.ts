@@ -177,6 +177,25 @@ const TOOLS = [
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
   },
+  {
+    name: "criar_nota",
+    title: "Criar nota no Obsidian",
+    description:
+      "Pede ao Obsidian da usuária para criar um arquivo NOVO no Vault (o plugin Ponte cria em até " +
+      "alguns minutos, no computador principal). Nunca sobrescreve nem apaga: se o arquivo já existir, " +
+      "nada acontece. Use caminhos dentro das pastas existentes (ex.: '01 - Vida/Pessoas/Guy.md'). " +
+      "Aceita .md, .base e '.obsidian/snippets/<nome>.css'. Só use quando a usuária pedir para criar/organizar.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        caminho: { type: "string", maxLength: 300, description: "Caminho relativo no Vault, com extensão" },
+        conteudo: { type: "string", maxLength: 200000 },
+      },
+      required: ["caminho", "conteudo"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
   // Compatibilidade com o formato "search/fetch" usado pelo ChatGPT.
   {
     name: "search",
@@ -227,6 +246,13 @@ async function ler(auth: Auth, rawId: string) {
   return { ...data, id: `memoria:${data.id}`, tipo: "memoria" };
 }
 
+function caminhoSeguro(c: string): boolean {
+  if (c.length < 4 || c.length > 300) return false;
+  if (/(^\/|\\|\.\.\/|\/\.\.|^\.\.|\/\/|[<>:"|?*\x00-\x1f])/.test(c)) return false;
+  if (/^\.obsidian\/snippets\/[^/]+\.css$/.test(c)) return true;
+  return /\.(md|base)$/.test(c) && !/(^|\/)\./.test(c);
+}
+
 function text(t: string, structured?: unknown) {
   return { content: [{ type: "text", text: t }], ...(structured ? { structuredContent: structured } : {}) };
 }
@@ -259,6 +285,18 @@ async function callTool(auth: Auth, name: string, args: Record<string, unknown>)
       }).select("id, titulo, criado_em").single();
       if (error) throw dbErr(error);
       return text(`Salvo no Segundo Cérebro (vai aparecer em "00 - Entrada" no Obsidian): ${JSON.stringify(data)}`);
+    }
+    case "criar_nota": {
+      const caminho = (str(args.caminho, 300) ?? "").trim().replace(/^\/+/, "");
+      const conteudo = str(args.conteudo, 200000) ?? "";
+      if (!caminhoSeguro(caminho)) {
+        throw new ToolError("Caminho não permitido. Use um caminho relativo terminando em .md ou .base (ou .obsidian/snippets/x.css).");
+      }
+      const { data, error } = await auth.db.from("pedidos_vault")
+        .insert({ usuario_id: auth.userId, caminho, conteudo, origem: auth.clientId ?? "mcp" })
+        .select("id, caminho").single();
+      if (error) throw dbErr(error);
+      return text(`Pedido registrado. O Obsidian vai criar "${data.caminho}" na próxima sincronização do computador principal (se ainda não existir).`);
     }
     case "search": {
       const rows = await buscar(auth, str(args.query, 500) ?? "", 10);

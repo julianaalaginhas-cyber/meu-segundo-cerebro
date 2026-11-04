@@ -1,0 +1,72 @@
+filters:
+  and:
+    - '!file.inFolder("05 - Sistema")'
+properties:
+  file.name:
+    displayName: Nota
+views:
+  - type: table
+    name: "Prazos e pendências"
+    filters:
+      and:
+        - 'tipo == "tarefa"'
+        - 'area == "trabalho"'
+        - 'status != "feita"'
+    order:
+      - file.name
+      - prazo
+      - cliente
+      - status
+
+  - type: table
+    name: "Clientes"
+    filters:
+      and:
+        - 'tipo == "cliente"'
+    order:
+      - file.name
+      - status
+      - contato
+
+  - type: table
+    name: "Processos"
+    filters:
+      and:
+        - 'tipo == "processo"'
+    order:
+      - file.name
+      - cliente
+      - numero
+      - status
+      - prazo
+
+  - type: table
+    name: "Contratos"
+    filters:
+      and:
+        - 'tipo == "contrato"'
+    order:
+      - file.name
+      - cliente
+      - status
+      - vigencia_ate
+
+  - type: table
+    name: "Reuniões"
+    filters:
+      and:
+        - 'tipo == "reuniao"'
+    order:
+      - file.name
+      - cliente
+      - data
+
+  - type: table
+    name: "Modelos jurídicos"
+    filters:
+      and:
+        - 'tipo == "modelo_juridico"'
+    order:
+      - file.name
+      - file.mtime
+

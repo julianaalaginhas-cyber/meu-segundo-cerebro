@@ -7,7 +7,7 @@ import { project, sql, keys, PLACEHOLDER } from "./sb.mjs";
 const p = await project();
 console.log("Projeto:", p.name, p.ref);
 
-for (const f of ["20261104000001_busca_memorias.sql", "20261104000002_notas_obsidian.sql"]) {
+for (const f of ["20261104000001_busca_memorias.sql", "20261104000002_notas_obsidian.sql", "20261104000003_pedidos_vault.sql"]) {
   await sql(p.ref, readFileSync(new URL(`../supabase/migrations/${f}`, import.meta.url), "utf8"));
   console.log("✔ SQL aplicado:", f, "(sem apagar nada; RLS preservado)");
 }

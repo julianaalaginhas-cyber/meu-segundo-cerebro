@@ -1,0 +1,154 @@
+filters:
+  and:
+    - '!file.inFolder("05 - Sistema")'
+formulas:
+  saldo: 'if(natureza == "despesa", 0 - valor, valor)'
+  progresso: 'if(valor_meta, ((valor_acumulado / valor_meta) * 100).round() + "%")'
+  falta: 'if(valor_meta, valor_meta - valor_acumulado)'
+properties:
+  file.name:
+    displayName: Descrição
+  formula.saldo:
+    displayName: Saldo
+  formula.progresso:
+    displayName: Progresso
+  formula.falta:
+    displayName: Falta
+views:
+  - type: table
+    name: "Resumo do mês"
+    filters:
+      and:
+        - 'tipo == "lancamento"'
+        - 'date(data).year == today().year && date(data).month == today().month'
+    order:
+      - file.name
+      - natureza
+      - categoria
+      - valor
+      - formula.saldo
+      - data
+      - status
+    summaries:
+      valor: Sum
+      formula.saldo: Sum
+
+  - type: table
+    name: "Gastos por categoria"
+    filters:
+      and:
+        - 'tipo == "lancamento"'
+        - 'natureza == "despesa"'
+        - 'date(data).year == today().year && date(data).month == today().month'
+    order:
+      - file.name
+      - categoria
+      - valor
+    groupBy:
+      property: categoria
+      direction: ASC
+    summaries:
+      valor: Sum
+
+  - type: table
+    name: "Contas a pagar"
+    filters:
+      and:
+        - 'tipo == "lancamento"'
+        - 'natureza == "despesa"'
+        - 'status == "pendente"'
+    order:
+      - file.name
+      - valor
+      - vencimento
+      - categoria
+      - forma_pagamento
+      - recorrencia
+    summaries:
+      valor: Sum
+
+  - type: table
+    name: "Contas a receber"
+    filters:
+      and:
+        - 'tipo == "lancamento"'
+        - 'natureza == "receita"'
+        - 'status != "recebido"'
+    order:
+      - file.name
+      - origem
+      - valor
+      - data
+      - status
+    summaries:
+      valor: Sum
+
+  - type: table
+    name: "Despesas fixas"
+    filters:
+      and:
+        - 'tipo == "recorrente"'
+        - 'categoria != "assinatura"'
+        - 'status != "cancelada"'
+    order:
+      - file.name
+      - categoria
+      - valor
+      - periodicidade
+      - proxima_cobranca
+    summaries:
+      valor: Sum
+
+  - type: table
+    name: "Assinaturas"
+    filters:
+      and:
+        - 'tipo == "recorrente"'
+        - 'categoria == "assinatura"'
+    order:
+      - file.name
+      - valor
+      - moeda
+      - periodicidade
+      - proxima_cobranca
+      - status
+
+  - type: table
+    name: "Orçamento"
+    filters:
+      and:
+        - 'tipo == "orcamento"'
+    order:
+      - file.name
+      - categoria
+      - valor_previsto
+      - mes
+    summaries:
+      valor_previsto: Sum
+
+  - type: table
+    name: "Metas"
+    filters:
+      and:
+        - 'tipo == "meta_financeira"'
+    order:
+      - file.name
+      - valor_meta
+      - valor_acumulado
+      - formula.progresso
+      - formula.falta
+      - prazo
+
+  - type: table
+    name: "Patrimônio"
+    filters:
+      and:
+        - 'tipo == "patrimonio"'
+    order:
+      - file.name
+      - categoria
+      - valor_estimado
+      - instituicao
+    summaries:
+      valor_estimado: Sum
+

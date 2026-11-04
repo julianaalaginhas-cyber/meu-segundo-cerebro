@@ -1,0 +1,51 @@
+filters:
+  and:
+    - '!file.inFolder("05 - Sistema")'
+    - 'tipo == "projeto"'
+properties:
+  file.name:
+    displayName: Projeto
+views:
+  - type: table
+    name: "Em andamento"
+    filters:
+      and:
+        - 'status == "ativo" || status == "planejamento" || status == "em andamento"'
+    order:
+      - file.name
+      - status
+      - prioridade
+      - area
+      - prazo
+
+  - type: table
+    name: "Pausados"
+    filters:
+      and:
+        - 'status == "pausado"'
+    order:
+      - file.name
+      - prioridade
+      - area
+      - prazo
+
+  - type: table
+    name: "Concluídos"
+    filters:
+      and:
+        - 'status == "concluído" || status == "concluido"'
+    order:
+      - file.name
+      - area
+      - prazo
+
+  - type: table
+    name: "Ideias"
+    filters:
+      and:
+        - 'status == "ideia"'
+    order:
+      - file.name
+      - area
+      - prioridade
+

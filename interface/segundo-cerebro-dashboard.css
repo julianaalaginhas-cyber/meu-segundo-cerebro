@@ -1,0 +1,237 @@
+/* ==========================================================================
+   Meu Segundo Cérebro — interface (snippet CSS)
+   Só afeta notas com `cssclasses: sc-painel` e callouts cujo tipo começa com "sc-".
+   Usa variáveis do Obsidian: funciona com o tema padrão, claro e escuro, Windows e iPhone.
+   ========================================================================== */
+
+/* ---------- Paleta (modo claro) ---------- */
+body {
+  --sc-vida-bg: #fbe4ec;         --sc-vida-ac: #c2577f;
+  --sc-trabalho-bg: #e3e3fa;     --sc-trabalho-ac: #5c5fc4;
+  --sc-projetos-bg: #fdebd3;     --sc-projetos-ac: #b8741f;
+  --sc-conhecimento-bg: #e1ecdc; --sc-conhecimento-ac: #4f7d4e;
+  --sc-financeiro-bg: #d8f2e6;   --sc-financeiro-ac: #23866a;
+  --sc-planejamento-bg: #ebe2f7; --sc-planejamento-ac: #7448b8;
+  --sc-entrada-bg: #fde0d7;      --sc-entrada-ac: #c9573c;
+  --sc-cerebro-bg: linear-gradient(135deg, #fbe4ec 0%, #ebe2f7 45%, #e1ecdc 100%);
+  --sc-raio: 16px;
+  --sc-sombra: 0 1px 2px rgba(0, 0, 0, .05), 0 4px 14px rgba(0, 0, 0, .05);
+}
+
+/* ---------- Paleta (modo escuro) ---------- */
+body.theme-dark {
+  --sc-vida-bg: rgba(226, 120, 160, .16);         --sc-vida-ac: #f19bbd;
+  --sc-trabalho-bg: rgba(130, 134, 235, .17);     --sc-trabalho-ac: #a9abff;
+  --sc-projetos-bg: rgba(232, 168, 84, .16);      --sc-projetos-ac: #f2c07c;
+  --sc-conhecimento-bg: rgba(126, 176, 124, .16); --sc-conhecimento-ac: #a6d3a2;
+  --sc-financeiro-bg: rgba(72, 190, 150, .16);    --sc-financeiro-ac: #7fdcb9;
+  --sc-planejamento-bg: rgba(160, 120, 230, .18); --sc-planejamento-ac: #c5a6f5;
+  --sc-entrada-bg: rgba(236, 128, 100, .17);      --sc-entrada-ac: #f5a68f;
+  --sc-cerebro-bg: linear-gradient(135deg, rgba(226,120,160,.20) 0%, rgba(160,120,230,.20) 50%, rgba(126,176,124,.18) 100%);
+  --sc-sombra: none;
+}
+
+/* ---------- Página de painel ---------- */
+.sc-painel {
+  --file-line-width: 1080px;
+}
+.sc-painel .inline-title,
+.sc-painel .metadata-container,
+.sc-painel .frontmatter-container {
+  display: none;
+}
+.sc-painel h2 {
+  font-size: 1.15em;
+  margin-top: 1.8em;
+  padding-bottom: .3em;
+  border-bottom: 2px solid var(--background-modifier-border);
+}
+.sc-painel h3 {
+  font-size: 1em;
+  color: var(--text-muted);
+  margin-top: 1.2em;
+}
+.sc-painel p.sc-dica,
+.sc-painel .sc-dica {
+  color: var(--text-muted);
+  font-size: .9em;
+}
+
+/* cor de destaque do título da página, por área */
+.sc-painel.sc-vida h2 { border-color: var(--sc-vida-ac); }
+.sc-painel.sc-trabalho h2 { border-color: var(--sc-trabalho-ac); }
+.sc-painel.sc-projetos h2 { border-color: var(--sc-projetos-ac); }
+.sc-painel.sc-conhecimento h2 { border-color: var(--sc-conhecimento-ac); }
+.sc-painel.sc-financeiro h2 { border-color: var(--sc-financeiro-ac); }
+.sc-painel.sc-planejamento h2 { border-color: var(--sc-planejamento-ac); }
+.sc-painel.sc-entrada h2 { border-color: var(--sc-entrada-ac); }
+
+/* ---------- Base de todos os callouts "sc-" ---------- */
+.callout[data-callout^="sc-"] {
+  --callout-padding: 14px 16px;
+  border: none;
+  border-radius: var(--sc-raio);
+  background: var(--sc-bg, var(--background-secondary));
+  box-shadow: var(--sc-sombra);
+  mix-blend-mode: normal;
+}
+.callout[data-callout^="sc-"] > .callout-title .callout-icon { display: none; }
+.callout[data-callout^="sc-"] > .callout-title {
+  color: var(--text-normal);
+  font-weight: 700;
+  gap: 0;
+}
+.callout[data-callout^="sc-"] > .callout-content { color: var(--text-normal); }
+.callout[data-callout^="sc-"] > .callout-content > p:last-child { margin-bottom: 0; }
+
+/* ---------- Cabeçalho ---------- */
+.callout[data-callout="sc-cabecalho"] {
+  --sc-bg: var(--sc-cerebro-bg);
+  padding: 26px 24px;
+  text-align: center;
+}
+.callout[data-callout="sc-cabecalho"] > .callout-title {
+  justify-content: center;
+  font-size: 1.9em;
+  line-height: 1.2;
+}
+.callout[data-callout="sc-cabecalho"] > .callout-content {
+  color: var(--text-muted);
+  font-size: 1.05em;
+}
+
+/* ---------- Grade de cartões ---------- */
+.callout[data-callout="sc-grade"] {
+  --sc-bg: transparent;
+  box-shadow: none;
+  padding: 0;
+  margin: 1em 0;
+}
+.callout[data-callout="sc-grade"] > .callout-title { display: none; }
+.callout[data-callout="sc-grade"] > .callout-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  padding: 0;
+}
+.callout[data-callout="sc-grade"] > .callout-content > .callout { margin: 0; }
+
+/* ---------- Cartões das áreas ---------- */
+.callout[data-callout="sc-vida"]         { --sc-bg: var(--sc-vida-bg);         --sc-ac: var(--sc-vida-ac); }
+.callout[data-callout="sc-trabalho"]     { --sc-bg: var(--sc-trabalho-bg);     --sc-ac: var(--sc-trabalho-ac); }
+.callout[data-callout="sc-projetos"]     { --sc-bg: var(--sc-projetos-bg);     --sc-ac: var(--sc-projetos-ac); }
+.callout[data-callout="sc-conhecimento"] { --sc-bg: var(--sc-conhecimento-bg); --sc-ac: var(--sc-conhecimento-ac); }
+.callout[data-callout="sc-financeiro"]   { --sc-bg: var(--sc-financeiro-bg);   --sc-ac: var(--sc-financeiro-ac); }
+.callout[data-callout="sc-planejamento"] { --sc-bg: var(--sc-planejamento-bg); --sc-ac: var(--sc-planejamento-ac); }
+.callout[data-callout="sc-entrada"]      { --sc-bg: var(--sc-entrada-bg);      --sc-ac: var(--sc-entrada-ac); }
+
+.callout[data-callout="sc-vida"], .callout[data-callout="sc-trabalho"],
+.callout[data-callout="sc-projetos"], .callout[data-callout="sc-conhecimento"],
+.callout[data-callout="sc-financeiro"], .callout[data-callout="sc-planejamento"],
+.callout[data-callout="sc-entrada"] {
+  position: relative;              /* o link do título cobre o cartão inteiro */
+  min-height: 108px;
+  border-left: 5px solid var(--sc-ac);
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+.callout[data-callout="sc-vida"]:hover, .callout[data-callout="sc-trabalho"]:hover,
+.callout[data-callout="sc-projetos"]:hover, .callout[data-callout="sc-conhecimento"]:hover,
+.callout[data-callout="sc-financeiro"]:hover, .callout[data-callout="sc-planejamento"]:hover,
+.callout[data-callout="sc-entrada"]:hover {
+  transform: translateY(-2px);
+}
+.callout[data-callout^="sc-"] > .callout-title a.internal-link {
+  color: var(--text-normal);
+  text-decoration: none;
+  font-size: 1.12em;
+}
+/* torna o CARTÃO INTEIRO clicável: o "::after" do link cobre o cartão */
+.callout[data-callout="sc-vida"] > .callout-title a.internal-link::after,
+.callout[data-callout="sc-trabalho"] > .callout-title a.internal-link::after,
+.callout[data-callout="sc-projetos"] > .callout-title a.internal-link::after,
+.callout[data-callout="sc-conhecimento"] > .callout-title a.internal-link::after,
+.callout[data-callout="sc-financeiro"] > .callout-title a.internal-link::after,
+.callout[data-callout="sc-planejamento"] > .callout-title a.internal-link::after,
+.callout[data-callout="sc-entrada"] > .callout-title a.internal-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--sc-raio);
+  z-index: 1;
+}
+.callout[data-callout="sc-vida"] > .callout-content, .callout[data-callout="sc-trabalho"] > .callout-content,
+.callout[data-callout="sc-projetos"] > .callout-content, .callout[data-callout="sc-conhecimento"] > .callout-content,
+.callout[data-callout="sc-financeiro"] > .callout-content, .callout[data-callout="sc-planejamento"] > .callout-content,
+.callout[data-callout="sc-entrada"] > .callout-content {
+  color: var(--text-muted);
+  font-size: .9em;
+  line-height: 1.4;
+}
+
+/* ---------- Painéis de seção (fundo suave da área) ---------- */
+.callout[data-callout="sc-secao"] { --sc-bg: var(--background-secondary); }
+.sc-painel.sc-vida .callout[data-callout="sc-secao"]         { --sc-bg: var(--sc-vida-bg); }
+.sc-painel.sc-trabalho .callout[data-callout="sc-secao"]     { --sc-bg: var(--sc-trabalho-bg); }
+.sc-painel.sc-projetos .callout[data-callout="sc-secao"]     { --sc-bg: var(--sc-projetos-bg); }
+.sc-painel.sc-conhecimento .callout[data-callout="sc-secao"] { --sc-bg: var(--sc-conhecimento-bg); }
+.sc-painel.sc-financeiro .callout[data-callout="sc-secao"]   { --sc-bg: var(--sc-financeiro-bg); }
+.sc-painel.sc-planejamento .callout[data-callout="sc-secao"] { --sc-bg: var(--sc-planejamento-bg); }
+.sc-painel.sc-entrada .callout[data-callout="sc-secao"]      { --sc-bg: var(--sc-entrada-bg); }
+
+/* ---------- Botões de captura e atalhos (links de verdade, com estilo de botão) ---------- */
+.callout[data-callout="sc-captura"] { --sc-bg: var(--sc-entrada-bg); }
+.callout[data-callout="sc-atalhos"] { --sc-bg: var(--background-secondary); }
+.callout[data-callout="sc-captura"] > .callout-content p,
+.callout[data-callout="sc-atalhos"] > .callout-content p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 0;
+}
+.callout[data-callout="sc-captura"] > .callout-content p br,
+.callout[data-callout="sc-atalhos"] > .callout-content p br { display: none; }
+.callout[data-callout="sc-captura"] a,
+.callout[data-callout="sc-atalhos"] a,
+.callout[data-callout="sc-secao"] a.external-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 13px;
+  border-radius: 999px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  border: 1px solid var(--background-modifier-border);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: .92em;
+  background-image: none;   /* remove o ícone de link externo */
+  line-height: 1.2;
+  margin: 2px 0;
+}
+.callout[data-callout="sc-captura"] a:hover,
+.callout[data-callout="sc-atalhos"] a:hover,
+.callout[data-callout="sc-secao"] a.external-link:hover {
+  border-color: var(--interactive-accent);
+  color: var(--text-normal);
+}
+
+/* ---------- Tabelas dos painéis (Bases) dentro das páginas ---------- */
+.sc-painel .internal-embed.bases-embed,
+.sc-painel .bases-embed {
+  border-radius: 12px;
+}
+
+/* ---------- iPhone / telas estreitas ---------- */
+@media (max-width: 600px) {
+  .callout[data-callout="sc-grade"] > .callout-content {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .callout[data-callout="sc-cabecalho"] > .callout-title { font-size: 1.45em; }
+  .callout[data-callout="sc-vida"], .callout[data-callout="sc-trabalho"],
+  .callout[data-callout="sc-projetos"], .callout[data-callout="sc-conhecimento"],
+  .callout[data-callout="sc-financeiro"], .callout[data-callout="sc-planejamento"],
+  .callout[data-callout="sc-entrada"] { min-height: 96px; }
+}
+.is-mobile .callout[data-callout="sc-grade"] > .callout-content {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}

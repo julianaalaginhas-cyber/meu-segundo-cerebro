@@ -1,0 +1,20 @@
+filters:
+  and:
+    - 'file.inFolder("00 - Entrada")'
+    - 'file.name != "Caixa de Entrada"'
+properties:
+  file.name:
+    displayName: Item
+  file.ctime:
+    displayName: Criado em
+views:
+  - type: table
+    name: "Itens da Entrada"
+    filters:
+      and:
+        - 'file.ext == "md"'
+    order:
+      - file.name
+      - tipo
+      - file.ctime
+

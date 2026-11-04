@@ -3,8 +3,10 @@
  * O que faz:
  *  - Envia cada nota criada/alterada para public.notas no Supabase (só se mudou: hash).
  *  - Remove da nuvem as notas apagadas; trata renomeações.
- *  - No "dispositivo principal": reconcilia tudo periodicamente e traz para
- *    "00 - Entrada" as memórias que o Claude/ChatGPT salvaram.
+ *  - No "dispositivo principal": reconcilia tudo periodicamente, traz para
+ *    "00 - Entrada" as memórias que o Claude/ChatGPT salvaram e cria os arquivos
+ *    que o Claude pediu (fila pedidos_vault). Só cria arquivos NOVOS: nunca
+ *    sobrescreve, nunca apaga; só .md/.base e snippets CSS.
  *
  * Segurança:
  *  - Login com e-mail/senha do Supabase; a SENHA NUNCA é guardada.
@@ -25,6 +27,13 @@ const DEFAULTS = {
 const LS_SESSAO = "ponte-segundo-cerebro:sessao";
 const LS_PRINCIPAL = "ponte-segundo-cerebro:principal";
 const MAX_CHARS = 200000;
+
+function caminhoSeguro(c) {
+  if (typeof c !== "string" || c.length < 4 || c.length > 300) return false;
+  if (/(^\/|\\|\.\.\/|\/\.\.|^\.\.|\/\/|[<>:"|?*\x00-\x1f])/.test(c)) return false;
+  if (/^\.obsidian\/snippets\/[^/]+\.css$/.test(c)) return true;
+  return /\.(md|base)$/.test(c) && !/(^|\/)\./.test(c);
+}
 
 async function sha256(texto) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(texto));
@@ -58,6 +67,8 @@ module.exports = class PonteSegundoCerebro extends Plugin {
       setTimeout(() => this.sincronizarTudo(false), 15000);
       this.registerInterval(window.setInterval(() => this.sincronizarTudo(false),
         Math.max(2, Number(this.settings.intervaloMin) || 10) * 60000));
+      // pedidos do Claude chegam mais rápido (a cada 2 min, só no principal)
+      this.registerInterval(window.setInterval(() => this.verificarPedidos(), 120000));
     });
   }
 
@@ -188,7 +199,7 @@ module.exports = class PonteSegundoCerebro extends Plugin {
     if (this.ocupado) return;
     this.ocupado = true;
     this.setStatus("🧠 …");
-    let enviadas = 0, removidas = 0, importadas = 0;
+    let enviadas = 0, removidas = 0, importadas = 0, criados = 0;
     try {
       const remotas = new Map();
       for (let de = 0; ; de += 1000) {
@@ -221,9 +232,10 @@ module.exports = class PonteSegundoCerebro extends Plugin {
           removidas = sobrando.length;
         }
         importadas = await this.importarMemorias();
+        criados = await this.aplicarPedidos();
       }
       this.setStatus(`🧠 ${new Date().toLocaleTimeString().slice(0, 5)}`);
-      if (manual) new Notice(`Segundo Cérebro sincronizado: ${enviadas} enviadas, ${removidas} removidas, ${importadas} trazidas para a Entrada.`);
+      if (manual) new Notice(`Segundo Cérebro sincronizado: ${enviadas} enviadas, ${removidas} removidas, ${importadas} trazidas para a Entrada, ${criados} arquivo(s) criados pelo Claude.`);
     } catch (e) {
       this.setStatus("🧠 ⚠︎");
       if (manual) new Notice("Segundo Cérebro: não foi possível sincronizar (" + e.message + ").");
@@ -231,6 +243,62 @@ module.exports = class PonteSegundoCerebro extends Plugin {
     } finally {
       this.ocupado = false;
     }
+  }
+
+  // ---------- arquivos que o Claude pediu para criar ----------
+  async verificarPedidos() {
+    if (!this.principal || !this.sessao || this.ocupado || !this.settings.supabaseUrl) return;
+    this.ocupado = true;
+    try { await this.aplicarPedidos(); } catch (e) { console.warn("[Segundo Cérebro] pedidos:", e.message); }
+    finally { this.ocupado = false; }
+  }
+
+  async garantirPasta(pasta) {
+    const partes = pasta.split("/").filter(Boolean);
+    let atual = "";
+    for (const p of partes) {
+      atual = atual ? `${atual}/${p}` : p;
+      if (!this.app.vault.getAbstractFileByPath(atual) && !(await this.app.vault.adapter.exists(atual))) {
+        await this.app.vault.createFolder(atual);
+      }
+    }
+  }
+
+  async aplicarPedidos() {
+    const pend = await this.rest("GET", "pedidos_vault?select=id,caminho,conteudo&aplicado_em=is.null&order=criado_em&limit=50");
+    if (!pend?.length) return 0;
+    let n = 0;
+    for (const p of pend) {
+      let resultado;
+      try {
+        const caminho = normalizePath(p.caminho);
+        if (!caminhoSeguro(caminho)) {
+          resultado = "recusado: caminho não permitido";
+        } else if (caminho.startsWith(".obsidian/")) {
+          const real = `${this.app.vault.configDir}/${caminho.slice(".obsidian/".length)}`;
+          const dir = real.split("/").slice(0, -1).join("/");
+          if (await this.app.vault.adapter.exists(real)) resultado = "já existia (não alterado)";
+          else {
+            if (!(await this.app.vault.adapter.exists(dir))) await this.app.vault.adapter.mkdir(dir);
+            await this.app.vault.adapter.write(real, p.conteudo);
+            resultado = "criado"; n++;
+          }
+        } else if (this.app.vault.getAbstractFileByPath(caminho) || await this.app.vault.adapter.exists(caminho)) {
+          resultado = "já existia (não alterado)";
+        } else {
+          const pasta = caminho.split("/").slice(0, -1).join("/");
+          if (pasta) await this.garantirPasta(pasta);
+          await this.app.vault.create(caminho, p.conteudo);
+          resultado = "criado"; n++;
+        }
+      } catch (e) {
+        resultado = "erro: " + String(e.message || e).slice(0, 120);
+      }
+      await this.rest("PATCH", `pedidos_vault?id=eq.${p.id}`, { aplicado_em: new Date().toISOString(), resultado },
+        { Prefer: "return=minimal" });
+    }
+    if (n) new Notice(`Segundo Cérebro: ${n} arquivo(s) novo(s) criado(s) pelo Claude.`);
+    return n;
   }
 
   // ---------- o que as IAs salvaram → 00 - Entrada ----------

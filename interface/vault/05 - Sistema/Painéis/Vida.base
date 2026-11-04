@@ -1,0 +1,90 @@
+filters:
+  and:
+    - '!file.inFolder("05 - Sistema")'
+properties:
+  file.name:
+    displayName: Nota
+views:
+  - type: table
+    name: "Pessoas"
+    filters:
+      and:
+        - 'tipo == "pessoa"'
+    order:
+      - file.name
+      - relacao
+      - aniversario
+      - telefone
+
+  - type: table
+    name: "Nicolas"
+    filters:
+      and:
+        - 'pessoa == "Nicolas" || file.name.contains("Nicolas")'
+    order:
+      - file.name
+      - tipo
+      - evento
+      - data
+      - proxima_dose
+
+  - type: table
+    name: "Casa"
+    filters:
+      and:
+        - 'area == "casa"'
+        - 'file.name != "Casa"'
+    order:
+      - file.name
+      - tipo
+      - status
+      - ultima_manutencao
+      - proxima_manutencao
+      - garantia_ate
+
+  - type: table
+    name: "Saúde"
+    filters:
+      and:
+        - 'tipo == "saude"'
+    order:
+      - file.name
+      - pessoa
+      - evento
+      - data
+      - profissional
+
+  - type: table
+    name: "Pets"
+    filters:
+      and:
+        - 'tipo == "pet" || area == "pets"'
+    order:
+      - file.name
+      - evento
+      - data
+      - proxima_dose
+
+  - type: table
+    name: "Viagens"
+    filters:
+      and:
+        - 'tipo == "viagem"'
+    order:
+      - file.name
+      - destino
+      - data_ida
+      - data_volta
+      - status
+
+  - type: table
+    name: "Documentos"
+    filters:
+      and:
+        - 'tipo == "documento"'
+    order:
+      - file.name
+      - pessoa
+      - documento
+      - validade
+

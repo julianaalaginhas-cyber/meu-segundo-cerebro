@@ -1,0 +1,60 @@
+filters:
+  and:
+    - '!file.inFolder("05 - Sistema")'
+properties:
+  file.name:
+    displayName: Nota
+views:
+  - type: table
+    name: "Livros"
+    filters:
+      and:
+        - 'tipo == "livro"'
+    order:
+      - file.name
+      - autor
+      - status
+      - nota
+
+  - type: table
+    name: "Estudos"
+    filters:
+      and:
+        - 'tipo == "estudo"'
+    order:
+      - file.name
+      - tema
+      - status
+      - origem
+
+  - type: table
+    name: "Receitas"
+    filters:
+      and:
+        - 'tipo == "receita"'
+    order:
+      - file.name
+      - categoria
+      - tempo_preparo
+      - origem
+
+  - type: table
+    name: "Referências"
+    filters:
+      and:
+        - 'tipo == "referencia"'
+    order:
+      - file.name
+      - categoria
+      - url
+
+  - type: table
+    name: "Ideias"
+    filters:
+      and:
+        - 'tipo == "ideia"'
+    order:
+      - file.name
+      - area
+      - file.ctime
+

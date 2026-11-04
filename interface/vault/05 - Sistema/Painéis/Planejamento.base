@@ -1,0 +1,141 @@
+filters:
+  and:
+    - '!file.inFolder("05 - Sistema")'
+formulas:
+  proxima_data: 'if(proxima_manutencao, date(proxima_manutencao), if(vencimento, date(vencimento), if(proxima_dose, date(proxima_dose), if(validade, date(validade), if(proxima_cobranca, date(proxima_cobranca), if(garantia_ate, date(garantia_ate), if(tipo == "processo" && prazo, date(prazo))))))))'
+  o_que: 'if(proxima_manutencao, "🔧 Manutenção", if(vencimento, "💳 Vencimento", if(proxima_dose, "💉 Dose", if(validade, "🪪 Validade", if(proxima_cobranca, "🔁 Cobrança", if(garantia_ate, "🛡️ Garantia", if(tipo == "processo", "⚖️ Prazo")))))))'
+properties:
+  file.name:
+    displayName: Nota
+  formula.proxima_data:
+    displayName: Data
+  formula.o_que:
+    displayName: O quê
+views:
+  - type: table
+    name: "Tarefas de hoje"
+    filters:
+      and:
+        - 'tipo == "tarefa"'
+        - 'status != "feita"'
+        - 'date(prazo) == today()'
+    order:
+      - file.name
+      - prazo
+      - area
+      - status
+
+  - type: table
+    name: "Tarefas atrasadas"
+    filters:
+      and:
+        - 'tipo == "tarefa"'
+        - 'status != "feita"'
+        - 'date(prazo) < today()'
+    order:
+      - file.name
+      - prazo
+      - area
+      - status
+
+  - type: table
+    name: "Tarefas - próximos 7 dias"
+    filters:
+      and:
+        - 'tipo == "tarefa"'
+        - 'status != "feita"'
+        - 'date(prazo) > today()'
+        - 'date(prazo) <= today() + "7d"'
+    order:
+      - file.name
+      - prazo
+      - area
+      - status
+
+  - type: table
+    name: "Tarefas sem prazo"
+    filters:
+      and:
+        - 'tipo == "tarefa"'
+        - 'status != "feita"'
+        - '!prazo'
+    order:
+      - file.name
+      - area
+      - status
+
+  - type: table
+    name: "Tarefas concluídas"
+    filters:
+      and:
+        - 'tipo == "tarefa"'
+        - 'status == "feita"'
+    order:
+      - file.name
+      - prazo
+      - area
+    limit: 20
+
+  - type: table
+    name: "Hoje - lembretes e compromissos"
+    filters:
+      and:
+        - 'tipo == "lembrete" || tipo == "compromisso"'
+        - 'date(data) == today()'
+    order:
+      - file.name
+      - tipo
+      - hora
+      - local
+
+  - type: table
+    name: "Compromissos e lembretes"
+    filters:
+      and:
+        - 'tipo == "lembrete" || tipo == "compromisso"'
+        - 'date(data) >= today()'
+    order:
+      - file.name
+      - tipo
+      - data
+      - hora
+      - local
+
+  - type: table
+    name: "Vencimentos - próximos 30 dias"
+    filters:
+      and:
+        - 'status != "pago"'
+        - 'status != "cancelada"'
+        - 'formula.proxima_data >= today()'
+        - 'formula.proxima_data <= today() + "30d"'
+    order:
+      - file.name
+      - formula.o_que
+      - formula.proxima_data
+
+  - type: table
+    name: "Vencimentos atrasados"
+    filters:
+      and:
+        - 'status != "pago"'
+        - 'status != "cancelada"'
+        - 'formula.proxima_data < today()'
+    order:
+      - file.name
+      - formula.o_que
+      - formula.proxima_data
+
+  - type: table
+    name: "Vencimentos - próximos 12 meses"
+    filters:
+      and:
+        - 'status != "pago"'
+        - 'status != "cancelada"'
+        - 'formula.proxima_data >= today()'
+        - 'formula.proxima_data <= today() + "365d"'
+    order:
+      - file.name
+      - formula.o_que
+      - formula.proxima_data
+
