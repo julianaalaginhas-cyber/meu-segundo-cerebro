@@ -19,7 +19,7 @@ Obsidian (Windows/iPhone)  ──plugin "Ponte"──▶  Supabase (notas + memo
 | `cerebro-mcp` | `supabase/functions/` | Servidor MCP remoto; exige token OAuth; sem `service_role` |
 | `notas` + `buscar_cerebro()` + `datas_do_cerebro()` | `supabase/migrations/` | Espelho do Vault, busca única e prazos |
 | Plugin "Ponte Segundo Cérebro" | `obsidian-plugin/` | Envia notas, apaga/renomeia em espelho, traz memórias para a Entrada |
-| Página de consentimento | `consentimento/` | Tela "Permitir acesso?" exigida pelo OAuth Server do Supabase |
+| Página de consentimento | `docs/` (GitHub Pages) | Tela "Permitir acesso?" exigida pelo OAuth Server do Supabase |
 
 ## Ferramentas MCP
 `buscar`, `ler`, `datas`, `salvar_memoria`, e `search`/`fetch` (formato esperado pelo ChatGPT).
@@ -32,7 +32,7 @@ NODE_USE_ENV_PROXY=1 node scripts/testar.mjs        # testes reais com dados fic
 ```
 
 ## Segurança
-- Nenhum segredo no código. A chave "publishable" em `consentimento/config.js` é pública por design.
+- Nenhum segredo no código. A chave "publishable" em `docs/config.js` é pública por design.
 - Toda chamada MCP exige token Bearer válido (assinatura + expiração verificadas).
 - Opcional: `ALLOWED_CLIENT_IDS` (segredo da função) restringe a apps OAuth específicos.
 - Logs registram só método, ferramenta, status e duração.

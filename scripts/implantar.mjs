@@ -1,5 +1,5 @@
 // Aplica a função SQL de busca e publica a Edge Function cerebro-mcp.
-// Não apaga nada. Gera consentimento/config.js com dados PÚBLICOS (URL + chave publishable).
+// Não apaga nada. Gera docs/config.js com dados PÚBLICOS (URL + chave publishable).
 import { readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { project, sql, keys, PLACEHOLDER } from "./sb.mjs";
@@ -19,10 +19,10 @@ execFileSync("npx", ["-y", "supabase@3.0.0", "functions", "deploy", "cerebro-mcp
 console.log("✔ Edge Function publicada:", `${p.url}/functions/v1/cerebro-mcp`);
 
 const k = await keys(p.ref);
-writeFileSync(new URL("../consentimento/config.js", import.meta.url),
+writeFileSync(new URL("../docs/config.js", import.meta.url),
   `// Dados públicos (a chave publishable é feita para ficar no navegador; o RLS protege os dados).\n` +
   `export default ${JSON.stringify({ supabaseUrl: p.url, supabaseKey: k.publishable }, null, 2)};\n`);
-console.log("✔ consentimento/config.js gerado");
+console.log("✔ docs/config.js gerado");
 
 // Plugin do Obsidian já configurado com a URL e a chave PÚBLICA do projeto.
 const { mkdirSync, copyFileSync } = await import("node:fs");
