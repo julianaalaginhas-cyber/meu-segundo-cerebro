@@ -359,6 +359,35 @@ module.exports = class PonteSegundoCerebro extends Plugin {
       return w;
     };
 
+    if (cfg.organizar) await passo("Organização das pastas", async () => {
+      const feitos = [];
+      const fm = this.app.fileManager;
+      for (const m of cfg.organizar.mover || []) {
+        const f = this.app.vault.getAbstractFileByPath(m.de);
+        if (!f) { continue; }                                   // já movido ou não existe
+        if (this.app.vault.getAbstractFileByPath(m.para)) { feitos.push(`mantido: ${m.de} (já existe ${m.para})`); continue; }
+        const pai = m.para.split("/").slice(0, -1).join("/");
+        if (pai) await this.garantirPasta(pai);
+        await fm.renameFile(f, m.para);                          // atualiza os links para a nota/pasta movida
+        feitos.push(`movido: ${m.de} → ${m.para}`);
+      }
+      const usado = (caminho) => Object.values(this.app.metadataCache.resolvedLinks || {}).some((alvos) => alvos && alvos[caminho]);
+      for (const l of cfg.organizar.lixeira || []) {
+        const f = this.app.vault.getAbstractFileByPath(l.caminho);
+        if (!(f instanceof TFile)) continue;
+        if (l.condicao === "canvas_vazio") {
+          let vazio = false;
+          try { const j = JSON.parse((await this.app.vault.read(f)) || "{}"); vazio = !(j.nodes || []).length && !(j.edges || []).length; } catch { vazio = false; }
+          if (!vazio) { feitos.push(`mantido: ${l.caminho} (não está vazio)`); continue; }
+        } else if (l.condicao === "sem_uso") {
+          if (usado(l.caminho)) { feitos.push(`mantido: ${l.caminho} (ainda é usado)`); continue; }
+        } else continue;                                          // sem condição conhecida, nunca apaga
+        try { await this.app.vault.trash(f, true); } catch { await this.app.vault.trash(f, false); }
+        feitos.push(`lixeira: ${l.caminho}`);
+      }
+      return feitos.length ? "\n  - " + feitos.join("\n  - ") : "nada a mudar";
+    });
+
     if (Array.isArray(cfg.pastas)) await passo("Pastas", async () => {
       for (const pasta of cfg.pastas) if (typeof pasta === "string" && caminhoSeguro(pasta + "/x.md")) await this.garantirPasta(pasta);
       return cfg.pastas.join(", ");

@@ -13,9 +13,9 @@ P = "05 - Sistema/Painéis"
 M = "05 - Sistema/Modelos"
 CAP = f"{M}/Captura"
 AG = "07 - Agenda"
-DIA = "01 - Vida/Diário"
-COMPRAS = "01 - Vida/Compras"
-TREINOS = "01 - Vida/Treinos"
+DIA = "01 - Vida/Rotina/Diário"
+COMPRAS = "01 - Vida/Casa/Compras"
+TREINOS = "01 - Vida/Rotina/Treinos"
 PEDIDOS = []
 
 
@@ -282,7 +282,7 @@ central = (tela() + topo("🧠 Meu Segundo Cérebro", sub="Minha vida, minhas id
                ("pessego", "🚀", "04 - Projetos/🚀 Projetos", "Projetos"),
                ("salvia", "📚", "03 - Conhecimento/📚 Conhecimento", "Conhecimento"),
                ("menta", "💰", "06 - Financeiro/💰 Meu Financeiro", "Financeiro"),
-               ("roxo", "📅", "📅 Planejamento", "Planejamento"),
+               ("roxo", "📅", "07 - Agenda/📅 Planejamento", "Planejamento"),
                ("coral", "📥", "00 - Entrada/Caixa de Entrada", "Entrada"),
            ]) + "\n"
            + painel("☀️ Hoje", "Agenda", "Hoje (com progresso)") + "\n"
@@ -301,38 +301,39 @@ agenda = (tela() + topo("📅 Agenda", voltar=VC) + "\n"
           + "## 🗓️ Compromissos\n" + emb("Agenda", "Compromissos") + "\n\n"
           + "## 🗓️ Este mês\n" + emb("Agenda", "Este mês") + "\n\n"
           + "## ⏳ Vencimentos\n" + emb("Agenda", "Vencimentos") + "\n")
-add("📅 Planejamento.md", agenda, "substituir")
+add("07 - Agenda/📅 Planejamento.md", agenda, "substituir")
 
 # =============================================================== 🏡 Minha Vida (v2, agora com Treinos e Compras)
 V = "01 - Vida"
 add(f"{V}/🏡 Minha Vida.md", tela() + topo("🏡 Minha Vida", voltar=VC) + "\n" + cartoes([
-    ("rosa", "👪", f"{V}/Família", "Família"),
-    ("ceu", "👦", f"{V}/Nicolas", "Nicolas"),
-    ("pessego", "🛒", f"{V}/🛒 Casa e Compras", "Casa e Compras"),
-    ("salvia", "🐾", f"{V}/Pets", "Pets"),
-    ("menta", "🩺", f"{V}/Saúde", "Saúde"),
-    ("lilas", "✈️", f"{V}/Viagens", "Viagens"),
-    ("coral", "🏋️", f"{V}/🏋️ Treinos", "Treinos"),
-    ("amarelo", "😊", f"{V}/😊 Humor e Gratidão", "Humor e Gratidão"),
-    ("roxo", "🔁", f"{V}/🔁 Hábitos", "Hábitos"),
+    ("rosa", "👪", f"{V}/Família/Família", "Família"),
+    ("ceu", "👦", f"{V}/Família/Nicolas", "Nicolas"),
+    ("pessego", "🛒", f"{V}/Casa/🛒 Casa e Compras", "Casa e Compras"),
+    ("salvia", "🐾", f"{V}/Pets/Pets", "Pets"),
+    ("menta", "🩺", f"{V}/Saúde/Saúde", "Saúde"),
+    ("lilas", "✈️", f"{V}/Viagens/Viagens", "Viagens"),
+    ("coral", "🏋️", f"{V}/Rotina/🏋️ Treinos", "Treinos"),
+    ("amarelo", "😊", f"{V}/Rotina/😊 Humor e Gratidão", "Humor e Gratidão"),
+    ("roxo", "🔁", f"{V}/Rotina/🔁 Hábitos", "Hábitos"),
+    ("ceu", "📁", f"{V}/📁 Documentos", "Documentos"),
 ], "sc-grade-p") + "\n## ⏳ Próximas datas\n" + f"![[{P}/Telas.base#Vida - próximas datas]]\n", "substituir")
 
 # =============================================================== telas novas (compactas)
-add(f"{V}/🔁 Hábitos.md", tela() + topo("🔁 Hábitos", voltar=VV) + "\n## Hoje\n" + emb("Diário", "Hoje")
+add(f"{V}/Rotina/🔁 Hábitos.md", tela() + topo("🔁 Hábitos", voltar=VV) + "\n## Hoje\n" + emb("Diário", "Hoje")
     + "\n\n## Esta semana\n" + emb("Diário", "Esta semana") + "\n\n## Histórico\n" + emb("Diário", "Histórico") + "\n")
-add(f"{V}/😊 Humor e Gratidão.md", tela() + topo("😊 Humor e Gratidão", voltar=VV) + "\n## Hoje\n" + emb("Diário", "Hoje")
+add(f"{V}/Rotina/😊 Humor e Gratidão.md", tela() + topo("😊 Humor e Gratidão", voltar=VV) + "\n## Hoje\n" + emb("Diário", "Hoje")
     + "\n\n## Histórico\n" + emb("Diário", "Histórico") + "\n")
-add(f"{V}/🏋️ Treinos.md", tela() + topo("🏋️ Treinos", voltar=VV) + "\n## Esta semana\n" + emb("Rotina", "Treinos da semana")
+add(f"{V}/Rotina/🏋️ Treinos.md", tela() + topo("🏋️ Treinos", voltar=VV) + "\n## Esta semana\n" + emb("Rotina", "Treinos da semana")
     + "\n\n## Histórico\n" + emb("Rotina", "Treinos") + "\n")
 LISTAS = [("rosa", "🛒", "Supermercado"), ("menta", "💊", "Farmácia"), ("salvia", "🐾", "Pets"),
           ("pessego", "🏠", "Casa"), ("lilas", "🛍️", "Pessoal"), ("amarelo", "📦", "Outros")]
-add(f"{V}/🛒 Casa e Compras.md", tela() + topo("🛒 Casa e Compras", voltar=VV) + "\n## 🛒 Listas de compras\n"
+add(f"{V}/Casa/🛒 Casa e Compras.md", tela() + topo("🛒 Casa e Compras", voltar=VV) + "\n## 🛒 Listas de compras\n"
     + cartoes([(c, i, f"{COMPRAS}/{n}", n) for c, i, n in LISTAS], "sc-grade-p")
-    + f"\n## 🏠 Casa\n" + cartoes([("ceu", "🏠", f"{V}/Casa", "Minha casa")], "sc-grade-p")
+    + f"\n## 🏠 Casa\n" + cartoes([("ceu", "🏠", f"{V}/Casa/Casa", "Minha casa")], "sc-grade-p")
     + "\n## 🔧 Equipamentos e manutenções\n" + emb("Rotina", "Equipamentos") + "\n")
 for _, icone, nome in LISTAS:
     add(f"{COMPRAS}/{nome}.md", f"---\ntipo: lista_compras\nlista: {nome.lower()}\n---\n# {icone} {nome}\n\n")
-add("📁 Documentos.md", tela() + topo("📁 Documentos", voltar=VC) + "\n" + emb("Rotina", "Documentos") + "\n")
+add(f"{V}/📁 Documentos.md", tela() + topo("📁 Documentos", voltar=VV) + "\n" + emb("Rotina", "Documentos") + "\n")
 
 # =============================================================== modelos
 add(f"{M}/Modelo - Dia.md", """---
@@ -457,17 +458,44 @@ ESCOLHAS = [
     escolha_modelo("🔗 Link", "Link", "00 - Entrada", "{{VALUE:Título do link}}"),
 ]
 FAVORITOS = [
-    ("🏠 Início", "🏠 Minha Central.md", None), ("📅 Agenda", "📅 Planejamento.md", None),
-    ("✅ Tarefas", "📅 Planejamento.md", "#✅ Tarefas"), ("🔁 Hábitos", f"{V}/🔁 Hábitos.md", None),
-    ("😊 Humor e Gratidão", f"{V}/😊 Humor e Gratidão.md", None), ("🏋️ Treinos", f"{V}/🏋️ Treinos.md", None),
+    ("🏠 Início", "🏠 Minha Central.md", None), ("📅 Agenda", "07 - Agenda/📅 Planejamento.md", None),
+    ("✅ Tarefas", "07 - Agenda/📅 Planejamento.md", "#✅ Tarefas"), ("🔁 Hábitos", f"{V}/Rotina/🔁 Hábitos.md", None),
+    ("😊 Humor e Gratidão", f"{V}/Rotina/😊 Humor e Gratidão.md", None), ("🏋️ Treinos", f"{V}/Rotina/🏋️ Treinos.md", None),
     ("📚 Estudos", "03 - Conhecimento/📚 Conhecimento.md", "#🎓 Estudos"),
-    ("🏡 Minha Vida", f"{V}/🏡 Minha Vida.md", None), ("🛒 Casa e Compras", f"{V}/🛒 Casa e Compras.md", None),
+    ("🏡 Minha Vida", f"{V}/🏡 Minha Vida.md", None), ("🛒 Casa e Compras", f"{V}/Casa/🛒 Casa e Compras.md", None),
     ("💰 Financeiro", "06 - Financeiro/💰 Meu Financeiro.md", None), ("⚖️ Trabalho", "02 - Trabalho/⚖️ Trabalho.md", None),
-    ("🚀 Projetos", "04 - Projetos/🚀 Projetos.md", None), ("📁 Documentos", "📁 Documentos.md", None),
+    ("🚀 Projetos", "04 - Projetos/🚀 Projetos.md", None), ("📁 Documentos", f"{V}/📁 Documentos.md", None),
     ("📥 Entrada", "00 - Entrada/Caixa de Entrada.md", None),
 ]
 CONFIG = {
-    "versao": 1,
+    "versao": 2,
+    "organizar": {
+        "mover": [
+            {"de": "📅 Planejamento.md", "para": "07 - Agenda/📅 Planejamento.md"},
+            {"de": "📁 Documentos.md", "para": "01 - Vida/📁 Documentos.md"},
+            {"de": "01 - Vida/Família.md", "para": "01 - Vida/Família/Família.md"},
+            {"de": "01 - Vida/Nicolas.md", "para": "01 - Vida/Família/Nicolas.md"},
+            {"de": "01 - Vida/🛒 Casa e Compras.md", "para": "01 - Vida/Casa/🛒 Casa e Compras.md"},
+            {"de": "01 - Vida/Casa.md", "para": "01 - Vida/Casa/Casa.md"},
+            {"de": "01 - Vida/Máquina de Lavar.md", "para": "01 - Vida/Casa/Máquina de Lavar.md"},
+            {"de": "01 - Vida/Compras", "para": "01 - Vida/Casa/Compras"},
+            {"de": "01 - Vida/Saúde.md", "para": "01 - Vida/Saúde/Saúde.md"},
+            {"de": "01 - Vida/Pets.md", "para": "01 - Vida/Pets/Pets.md"},
+            {"de": "01 - Vida/Viagens.md", "para": "01 - Vida/Viagens/Viagens.md"},
+            {"de": "01 - Vida/🔁 Hábitos.md", "para": "01 - Vida/Rotina/🔁 Hábitos.md"},
+            {"de": "01 - Vida/😊 Humor e Gratidão.md", "para": "01 - Vida/Rotina/😊 Humor e Gratidão.md"},
+            {"de": "01 - Vida/🏋️ Treinos.md", "para": "01 - Vida/Rotina/🏋️ Treinos.md"},
+            {"de": "01 - Vida/Diário", "para": "01 - Vida/Rotina/Diário"},
+            {"de": "01 - Vida/Treinos", "para": "01 - Vida/Rotina/Treinos"},
+        ],
+        "lixeira": [
+            {"caminho": "Sem título.canvas", "condicao": "canvas_vazio"},
+            {"caminho": "Sem título 1.canvas", "condicao": "canvas_vazio"},
+            {"caminho": "05 - Sistema/Painéis/Planejamento.base", "condicao": "sem_uso"},
+            {"caminho": "05 - Sistema/Painéis/Entrada.base", "condicao": "sem_uso"},
+            {"caminho": "05 - Sistema/Painéis/Vida.base", "condicao": "sem_uso"},
+        ],
+    },
     "pastas": [AG, DIA, TREINOS, COMPRAS],
     "favoritos": {"grupo": "🧠 Segundo Cérebro", "itens": [{"titulo": t, "caminho": c, **({"subpath": s} if s else {})} for t, c, s in FAVORITOS]},
     "inicio": {"nota": "🏠 Minha Central", "modo": "Reading view"},

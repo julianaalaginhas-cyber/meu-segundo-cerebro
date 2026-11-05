@@ -6,3 +6,4 @@ supabase/.branches/
 *.log
 obsidian-plugin/dist/
 ponte-segundo-cerebro.zip
+interface/v3/lote-organizacao.json
