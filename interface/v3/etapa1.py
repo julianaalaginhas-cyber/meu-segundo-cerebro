@@ -19,7 +19,7 @@ TREINOS = "01 - Vida/Treinos"
 PEDIDOS = []
 
 
-def add(caminho, conteudo, acao="criar"):
+def add(caminho, conteudo=None, acao="criar"):
     PEDIDOS.append({"caminho": caminho, "acao": acao, "conteudo": conteudo})
 
 
@@ -101,7 +101,20 @@ def vista(nome, filtros, colunas_, extra="", ou=None):
     if ou:
         f += "        - or:\n" + "".join(f"            - '{x}'\n" for x in ou)
     c = "".join(f"      - {x}\n" for x in colunas_)
-    return f"  - type: table\n    name: \"{nome}\"\n    filters:\n      and:\n{f}    order:\n{c}{extra}"
+    return f"  - type: table\n    name: \"{nome}\"\n    filters:\n      and:\n{f}    order:\n{c}{larguras(colunas_)}{extra}"
+
+
+LARGURAS = {"feita": 46, "file.name": 300, "formula.o_que": 150, "formula.quando": 120, "formula.dia": 160,
+            "area": 110, "hora": 80, "prioridade": 100, "projeto": 160, "status": 120, "prazo": 110,
+            "humor": 130, "energia": 100, "sono": 90, "valor": 100, "vencimento": 110}
+
+
+def larguras(colunas_):
+    itens = [c for c in colunas_ if c in LARGURAS]
+    if not itens:
+        return ""
+    nome = lambda c: c if "." in c else "note." + c
+    return "    columnSize:\n" + "".join(f"      {nome(c)}: {LARGURAS[c]}\n" for c in itens)
 
 
 def agrupar(prop, direcao="ASC"):
@@ -112,7 +125,7 @@ ORDEM_QUANDO = "    sort:\n      - property: formula.quando\n        direction: 
 TAREFA = 'tipo == "tarefa"'
 
 # =============================================================== Agenda.base
-add(f"{P}/Agenda.base", f"""filters:
+add(f"{P}/Agenda.base", acao="substituir", conteudo=f"""filters:
   and:
     - '!file.inFolder("05 - Sistema")'
 formulas:
@@ -149,7 +162,7 @@ views:
 """)
 
 # =============================================================== Diário.base (hábitos, humor, gratidão)
-add(f"{P}/Diário.base", f"""filters:
+add(f"{P}/Diário.base", acao="substituir", conteudo=f"""filters:
   and:
     - 'file.inFolder("{DIA}")'
 formulas:
@@ -164,7 +177,7 @@ views:
 """.replace("\\n", "\n"))
 
 # =============================================================== Rotina.base (treinos, compras, documentos, casa)
-add(f"{P}/Rotina.base", f"""filters:
+add(f"{P}/Rotina.base", acao="substituir", conteudo=f"""filters:
   and:
     - '!file.inFolder("05 - Sistema")'
 properties:
@@ -183,12 +196,7 @@ def painel(titulo, base, vista):
 
 
 central = (tela() + topo("🧠 Meu Segundo Cérebro", sub="Minha vida, minhas ideias e meus projetos.") + "\n"
-           + painel("📅 Minha semana", "Agenda", "Esta semana") + "\n"
-           + painel("📈 Progresso de hoje", "Agenda", "Progresso de hoje") + "\n"
-           + painel("☀️ Meu dia — hoje e atrasadas", "Agenda", "Hoje") + "\n"
-           + painel("📋 Todas as pendentes", "Agenda", "Todas as pendentes") + "\n"
-           + painel("🔁 Hábitos de hoje", "Diário", "Hoje") + "\n"
-           + "## 🧭 Áreas\n" + cartoes([
+           + cartoes([
                ("rosa", "🏡", "01 - Vida/🏡 Minha Vida", "Minha Vida"),
                ("lilas", "⚖️", "02 - Trabalho/⚖️ Trabalho", "Trabalho"),
                ("pessego", "🚀", "04 - Projetos/🚀 Projetos", "Projetos"),
@@ -196,7 +204,12 @@ central = (tela() + topo("🧠 Meu Segundo Cérebro", sub="Minha vida, minhas id
                ("menta", "💰", "06 - Financeiro/💰 Meu Financeiro", "Financeiro"),
                ("roxo", "📅", "📅 Planejamento", "Planejamento"),
                ("coral", "📥", "00 - Entrada/Caixa de Entrada", "Entrada"),
-           ], "sc-grade-c") + "\n"
+           ]) + "\n"
+           + painel("📅 Minha semana", "Agenda", "Esta semana") + "\n"
+           + painel("📈 Progresso de hoje", "Agenda", "Progresso de hoje") + "\n"
+           + painel("☀️ Meu dia — hoje e atrasadas", "Agenda", "Hoje") + "\n"
+           + painel("📋 Todas as pendentes", "Agenda", "Todas as pendentes") + "\n"
+           + painel("🔁 Hábitos de hoje", "Diário", "Hoje") + "\n"
            + "## 🔭 Visão geral\n"
            + painel("⏳ Vencimentos (30 dias)", "Agenda", "Vencimentos") + "\n"
            + painel("💳 Contas da semana", "Agenda", "Contas da semana") + "\n"

@@ -221,6 +221,13 @@ body.theme-dark {
 .sc-app .callout[data-callout="sc-grade-c"] .callout[data-callout^="sc-c-"] a.internal-link { font-size: .92em; }
 .sc-app .callout[data-callout="sc-grade-c"] .callout[data-callout^="sc-c-"] > .callout-content p { margin-top: 8px; }
 
+/* tabelas do Bases nunca passam da largura da tela */
+.sc-app .callout[data-callout="sc-bloco"] { max-width: 100%; box-sizing: border-box; }
+.sc-app .callout[data-callout="sc-bloco"] .internal-embed,
+.sc-app .callout[data-callout="sc-bloco"] .bases-embed,
+.sc-app .callout[data-callout="sc-bloco"] .bases-view { max-width: 100%; width: 100%; overflow-x: auto; }
+.sc-app .callout[data-callout="sc-grade"] { margin-bottom: 26px; }
+
 /* tabelas do Bases mais leves dentro das telas */
 .sc-app .bases-view { font-size: .93em; }
 
