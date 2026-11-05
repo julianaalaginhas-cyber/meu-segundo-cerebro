@@ -122,7 +122,7 @@ LARGURAS = {"feita": 46, "file.name": 280, "formula.o_que": 150, "formula.quando
             "tipo_treino": 130, "duracao_min": 110, "realizado": 90, "ultima_manutencao": 150,
             "proxima_manutencao": 160, "garantia_ate": 130, "pessoa": 130, "documento": 130, "validade": 120,
             "relacao": 120, "aniversario": 120, "evento": 130, "proxima_dose": 130, "destino": 150,
-            "data_ida": 110, "local": 140, "formula.grupo": 140, "formula.grupo_geral": 160}
+            "data_ida": 110, "local": 140, "treino": 150, "cardio": 150, "skincare": 160, "formula.feitos": 90, "meta_semana": 110, "frequencia": 140, "ativo": 80, "formula.grupo": 140, "formula.grupo_geral": 160}
 
 
 def larguras(colunas_):
@@ -251,19 +251,32 @@ views:
 """)
 
 # =============================================================== Diário.base (hábitos, humor, gratidão)
+HAB = ["treino", "cardio", "skincare"]          # propriedades (caixinhas) da nota do dia
+HAB_COLS = ["file.name"] + HAB + ["humor"]
+CHECK = "    summaries:\n" + "".join(f"      {h}: Checked\n" for h in HAB)
 add(f"{P}/Diário.base", acao="substituir", conteudo=f"""filters:
   and:
     - 'file.inFolder("{DIA}")'
 formulas:
   dia: 'date(file.name)'
+  feitos: '(if(treino, 1, 0) + if(cardio, 1, 0) + if(skincare, 1, 0)).toFixed(0) + " de 3"'
 properties:
   file.name:
     displayName: Dia
+  treino:
+    displayName: "🏋️ Treino (meta 5x)"
+  cardio:
+    displayName: "🏃 Cardio (meta 3x)"
+  skincare:
+    displayName: "🧴 Skincare (todo dia)"
+  formula.feitos:
+    displayName: Feitos
 views:
-{vista("Hoje", ['formula.dia == today()'], ["file.name", "humor", "energia", "sono"])}
-{vista("Esta semana", ['formula.dia.format("GGGG-WW") == today().format("GGGG-WW")'], ["file.name", "humor", "energia", "sono"], "    sort:\n      - property: file.name\n        direction: ASC\n")}
-{vista("Histórico", ['formula.dia <= today()'], ["file.name", "humor", "energia", "sono"], "    sort:\n      - property: file.name\n        direction: DESC\n    limit: 60\n")}
-""".replace("\\n", "\n"))
+{vista("Hoje", ['formula.dia == today()'], HAB_COLS + ["formula.feitos"])}
+{vista("Esta semana", ['formula.dia.format("GGGG-WW") == today().format("GGGG-WW")'], HAB_COLS, "    sort:\n      - property: file.name\n        direction: ASC\n" + CHECK)}
+{vista("Este mês", ['formula.dia.format("YYYY-MM") == today().format("YYYY-MM")'], HAB_COLS, "    sort:\n      - property: file.name\n        direction: ASC\n" + CHECK)}
+{vista("Histórico", ['formula.dia <= today()'], ["file.name"] + HAB + ["humor", "energia", "sono"], "    sort:\n      - property: file.name\n        direction: DESC\n    limit: 60\n")}
+""")
 
 # =============================================================== Rotina.base (treinos, compras, documentos, casa)
 add(f"{P}/Rotina.base", acao="substituir", conteudo=f"""filters:
@@ -277,6 +290,7 @@ views:
 {vista("Treinos da semana", ['tipo == "treino"', 'date(data).format("GGGG-WW") == today().format("GGGG-WW")'], ["realizado", "file.name", "data", "tipo_treino", "duracao_min"], "    summaries:\n      realizado: Checked\n      duracao_min: Sum\n")}
 {vista("Equipamentos", ['tipo == "equipamento"'], ["file.name", "ultima_manutencao", "proxima_manutencao", "garantia_ate"], "    sort:\n      - property: proxima_manutencao\n        direction: ASC\n")}
 {vista("Documentos", ['tipo == "documento"'], ["file.name", "pessoa", "documento", "validade"])}
+{vista("Hábitos cadastrados", ['tipo == "habito"'], ["file.name", "meta_semana", "frequencia", "ativo"])}
 """)
 
 # =============================================================== 🏠 Minha Central
@@ -328,8 +342,11 @@ add(f"{V}/🏡 Minha Vida.md", tela() + topo("🏡 Minha Vida", voltar=VC) + "\n
 ], "sc-grade-p") + "\n## ⏳ Próximas datas\n" + f"![[{P}/Telas.base#Vida - próximas datas]]\n", "substituir")
 
 # =============================================================== telas novas (compactas)
-add(f"{V}/Rotina/🔁 Hábitos.md", tela() + topo("🔁 Hábitos", voltar=VV) + "\n## Hoje\n" + emb("Diário", "Hoje")
-    + "\n\n## Esta semana\n" + emb("Diário", "Esta semana") + "\n\n## Histórico\n" + emb("Diário", "Histórico") + "\n")
+add(f"{V}/Rotina/🔁 Hábitos.md", tela() + topo("🔁 Hábitos", voltar=VV) + "\n"
+    + painel("✅ Hoje", "Diário", "Hoje") + "\n"
+    + painel("📅 Esta semana (no rodapé: quantos dias fiz cada um)", "Diário", "Esta semana") + "\n"
+    + painel("🗓️ Este mês", "Diário", "Este mês") + "\n"
+    + painel("🎯 Meus hábitos e metas", "Rotina", "Hábitos cadastrados"), "substituir")
 add(f"{V}/Rotina/😊 Humor e Gratidão.md", tela() + topo("😊 Humor e Gratidão", voltar=VV) + "\n## Hoje\n" + emb("Diário", "Hoje")
     + "\n\n## Histórico\n" + emb("Diário", "Histórico") + "\n")
 add(f"{V}/Rotina/🏋️ Treinos.md", tela() + topo("🏋️ Treinos", voltar=VV) + "\n## Esta semana\n" + emb("Rotina", "Treinos da semana")
@@ -344,9 +361,17 @@ for _, icone, nome in LISTAS:
     add(f"{COMPRAS}/{nome}.md", f"---\ntipo: lista_compras\nlista: {nome.lower()}\n---\n# {icone} {nome}\n\n")
 add(f"{V}/📁 Documentos.md", tela() + topo("📁 Documentos", voltar=VV) + "\n" + emb("Rotina", "Documentos") + "\n")
 
+# =============================================================== hábitos cadastrados (só os que a usuária escolheu)
+for nome, prop, meta, freq in [("🏋️ Treinar", "treino", 5, "5x por semana"), ("🏃 Cardio", "cardio", 3, "3x por semana"),
+                               ("🧴 Skincare", "skincare", 7, "todos os dias")]:
+    add(f"{V}/Rotina/Hábitos/{nome}.md", f"---\ntipo: habito\npropriedade: {prop}\nmeta_semana: {meta}\nfrequencia: {freq}\nativo: true\n---\nMarque **{prop}** na nota do dia (Diário) quando fizer.\n")
+
 # =============================================================== modelos
-add(f"{M}/Modelo - Dia.md", """---
+add(f"{M}/Modelo - Dia com hábitos.md", """---
 tipo: dia
+treino: false
+cardio: false
+skincare: false
 humor:
 energia:
 sono:
@@ -460,8 +485,8 @@ ESCOLHAS = [
     escolha_modelo("💡 Ideia", "Ideia", "00 - Entrada", "Ideia {{DATE:YYYY-MM-DD HHmm}}"),
     escolha_modelo("🍲 Receita", "Receita", "03 - Conhecimento", "{{VALUE:Nome da receita}}"),
     escolha_captura("😊 Humor", HOJE, "{{VALUE:😄 Muito bem,🙂 Bem,😐 Normal,😔 Para baixo,😣 Difícil}}",
-                    modelo=f"{M}/Modelo - Dia.md", abrir=True, propriedade="humor"),
-    escolha_captura("🙏 Gratidão", HOJE, "- {{VALUE:Sou grata por}}\n", depois="## 🙏 Gratidão", modelo=f"{M}/Modelo - Dia.md"),
+                    modelo=f"{M}/Modelo - Dia com hábitos.md", abrir=True, propriedade="humor"),
+    escolha_captura("🙏 Gratidão", HOJE, "- {{VALUE:Sou grata por}}\n", depois="## 🙏 Gratidão", modelo=f"{M}/Modelo - Dia com hábitos.md"),
     escolha_modelo("🏋️ Treino", "Treino", TREINOS, "Treino {{DATE:YYYY-MM-DD}}"),
     escolha_modelo("ℹ️ Informação", "Informação", "00 - Entrada", "{{VALUE:Sobre o quê?}}"),
     escolha_modelo("🔗 Link", "Link", "00 - Entrada", "{{VALUE:Título do link}}"),
@@ -508,7 +533,7 @@ CONFIG = {
     "pastas": [AG, DIA, TREINOS, COMPRAS],
     "favoritos": {"grupo": "🧠 Segundo Cérebro", "itens": [{"titulo": t, "caminho": c, **({"subpath": s} if s else {})} for t, c, s in FAVORITOS]},
     "inicio": {"nota": "🏠 Minha Central", "modo": "Reading view"},
-    "diario": {"pasta": DIA, "modelo": f"{M}/Modelo - Dia", "formato": "YYYY-MM-DD"},
+    "diario": {"pasta": DIA, "modelo": f"{M}/Modelo - Dia com hábitos", "formato": "YYYY-MM-DD"},
     "captura": {"escolhas": ESCOLHAS, "iconeNaBarra": True},
 }
 add("05 - Sistema/⚙️ Configuração do Segundo Cérebro.md",
