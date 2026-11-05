@@ -178,12 +178,16 @@ views:
 """)
 
 # =============================================================== 🏠 Minha Central
+def painel(titulo, base, vista):
+    return f"> [!sc-bloco] {titulo}\n> {emb(base, vista)}\n"
+
+
 central = (tela() + topo("🧠 Meu Segundo Cérebro", sub="Minha vida, minhas ideias e meus projetos.") + "\n"
-           + colunas(
-               coluna(bloco("📅 Minha semana", "Agenda", "Esta semana"), bloco("📋 Todas as pendentes", "Agenda", "Todas as pendentes")),
-               coluna(bloco("📈 Progresso de hoje", "Agenda", "Progresso de hoje"), bloco("☀️ Meu dia", "Agenda", "Hoje"),
-                      bloco("🔁 Hábitos de hoje", "Diário", "Hoje")),
-           ) + "\n"
+           + painel("📅 Minha semana", "Agenda", "Esta semana") + "\n"
+           + painel("📈 Progresso de hoje", "Agenda", "Progresso de hoje") + "\n"
+           + painel("☀️ Meu dia — hoje e atrasadas", "Agenda", "Hoje") + "\n"
+           + painel("📋 Todas as pendentes", "Agenda", "Todas as pendentes") + "\n"
+           + painel("🔁 Hábitos de hoje", "Diário", "Hoje") + "\n"
            + "## 🧭 Áreas\n" + cartoes([
                ("rosa", "🏡", "01 - Vida/🏡 Minha Vida", "Minha Vida"),
                ("lilas", "⚖️", "02 - Trabalho/⚖️ Trabalho", "Trabalho"),
@@ -194,12 +198,10 @@ central = (tela() + topo("🧠 Meu Segundo Cérebro", sub="Minha vida, minhas id
                ("coral", "📥", "00 - Entrada/Caixa de Entrada", "Entrada"),
            ], "sc-grade-c") + "\n"
            + "## 🔭 Visão geral\n"
-           + colunas(
-               coluna(bloco("⏳ Vencimentos", "Agenda", "Vencimentos")),
-               coluna(bloco("💳 Contas da semana", "Agenda", "Contas da semana")),
-               coluna(bloco("🚀 Projetos ativos", "Agenda", "Projetos ativos")),
-               coluna(bloco("🔁 Hábitos da semana", "Diário", "Esta semana")),
-               tipo="sc-quadro"))
+           + painel("⏳ Vencimentos (30 dias)", "Agenda", "Vencimentos") + "\n"
+           + painel("💳 Contas da semana", "Agenda", "Contas da semana") + "\n"
+           + painel("🚀 Projetos ativos", "Agenda", "Projetos ativos") + "\n"
+           + painel("🔁 Hábitos da semana", "Diário", "Esta semana"))
 add("🏠 Minha Central.md", central, "substituir")
 
 # =============================================================== 📅 Planejamento (Agenda)

@@ -34,6 +34,10 @@ body.theme-dark {
 .sc-app { --file-line-width: 940px; }
 .sc-app .inline-title,
 .sc-app .metadata-container,
+.sc-app .metadata-properties-heading,
+.sc-app .metadata-content,
+.sc-app .mod-header .metadata-container,
+.sc-app.markdown-preview-view .frontmatter,
 .sc-app .frontmatter-container,
 .sc-app .embedded-backlinks { display: none; }
 
@@ -170,7 +174,7 @@ body.theme-dark {
 .is-mobile .sc-app .callout[data-callout="sc-grade-p"] > .callout-content { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
 /* ===================== v3: central operacional ===================== */
-.sc-app { --file-line-width: 1080px; }
+.sc-app { --file-line-width: 980px; }
 
 /* duas colunas (computador) / uma coluna (iPhone) */
 .sc-app .callout[data-callout="sc-colunas"],
