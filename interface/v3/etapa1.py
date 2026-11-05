@@ -87,6 +87,13 @@ AGENDAVEL = 'tipo == "tarefa" || tipo == "compromisso" || tipo == "lembrete"'
 QUANDO = f'if({AGENDAVEL}, if(data, date(data), if(prazo, date(prazo))), {VENC})'
 ROTULO_DIA = ('formula.quando.format("E") + " · " + formula.quando.format("ddd DD/MM") '
               '+ if(formula.quando == today(), "   ● HOJE", "")')
+GRUPO = ('if(!formula.quando, "6 · Sem data", if(formula.quando < today(), "1 · Atrasadas", '
+         'if(formula.quando == today(), "2 · Hoje", if(formula.quando == today() + duration("1d"), "3 · Amanhã", '
+         'if(formula.quando.format("GGGG-WW") == today().format("GGGG-WW"), "4 · Esta semana", "5 · Mais tarde")))))')
+GRUPO_GERAL = ('if(tipo == "projeto", "🚀 Projetos ativos", if(tipo == "lancamento", "💳 Contas a pagar", '
+               'if(proxima_manutencao, "🔧 Manutenções", if(proxima_dose || tipo == "saude", "🩺 Saúde e vacinas", '
+               'if(validade, "🪪 Documentos", if(proxima_cobranca, "🔁 Assinaturas", if(proxima_revisao, "📚 Revisões", '
+               'if(tipo == "processo", "⚖️ Prazos de processos", "⏳ Outros vencimentos"))))))))')
 PENDENTE = ['feita != true', 'status != "feita"', 'status != "pago"', 'status != "cancelada"']
 SEMANA = 'formula.quando.format("GGGG-WW") == {d}.format("GGGG-WW")'
 PROG = ('if(values.length == 0, "Nenhuma tarefa para hoje", '
@@ -132,6 +139,8 @@ formulas:
   quando: '{QUANDO}'
   dia: '{ROTULO_DIA}'
   o_que: '{OQUE}'
+  grupo: '{GRUPO}'
+  grupo_geral: '{GRUPO_GERAL}'
 summaries:
   progresso: '{PROG}'
 properties:
@@ -145,7 +154,78 @@ properties:
     displayName: Tipo
   formula.dia:
     displayName: Dia
+  formula.grupo:
+    displayName: Quando
+  formula.grupo_geral:
+    displayName: O quê
 views:
+  - type: table
+    name: "Hoje (com progresso)"
+    filters:
+      and:
+        - '{TAREFA}'
+        - or:
+            - 'formula.quando == today()'
+            - and:
+                - 'formula.quando < today()'
+                - 'feita != true'
+                - 'status != "feita"'
+    order:
+      - feita
+      - file.name
+      - formula.quando
+      - area
+      - prioridade
+{larguras(["feita", "file.name", "formula.quando", "area", "prioridade"])}    sort:
+      - property: formula.quando
+        direction: ASC
+    summaries:
+      feita: progresso
+  - type: table
+    name: "Pendências"
+    filters:
+      and:
+        - 'tipo == "tarefa" || tipo == "compromisso" || tipo == "lembrete"'
+        - 'feita != true'
+        - 'status != "feita"'
+        - 'status != "cancelada"'
+    order:
+      - feita
+      - file.name
+      - formula.o_que
+      - formula.quando
+      - area
+{larguras(["feita", "file.name", "formula.o_que", "formula.quando", "area"])}    groupBy:
+      property: formula.grupo
+      direction: ASC
+    sort:
+      - property: formula.quando
+        direction: ASC
+  - type: table
+    name: "Visão geral"
+    filters:
+      or:
+        - and:
+            - 'tipo == "projeto"'
+            - 'status == "ativo" || status == "planejamento" || status == "em andamento"'
+        - and:
+            - '!({AGENDAVEL})'
+            - 'formula.quando'
+            - 'formula.quando <= today() + duration("30d")'
+            - 'status != "pago"'
+            - 'status != "cancelada"'
+            - 'status != "concluído"'
+    order:
+      - file.name
+      - formula.quando
+      - valor
+      - status
+{larguras(["file.name", "formula.quando", "valor", "status"])}    groupBy:
+      property: formula.grupo_geral
+      direction: ASC
+    sort:
+      - property: formula.quando
+        direction: ASC
 {vista("Esta semana", [SEMANA.format(d="today()"), 'status != "pago"', 'status != "cancelada"'], ["feita", "file.name", "formula.o_que", "area", "hora"], agrupar("formula.dia") + ORDEM_QUANDO)}
 {vista("Semana passada", [SEMANA.format(d='(today() - duration("7d"))'), 'status != "pago"', 'status != "cancelada"'], ["feita", "file.name", "formula.o_que", "area"], agrupar("formula.dia") + ORDEM_QUANDO)}
 {vista("Próxima semana", [SEMANA.format(d='(today() + duration("7d"))'), 'status != "pago"', 'status != "cancelada"'], ["feita", "file.name", "formula.o_que", "area", "hora"], agrupar("formula.dia") + ORDEM_QUANDO)}
@@ -205,16 +285,10 @@ central = (tela() + topo("🧠 Meu Segundo Cérebro", sub="Minha vida, minhas id
                ("roxo", "📅", "📅 Planejamento", "Planejamento"),
                ("coral", "📥", "00 - Entrada/Caixa de Entrada", "Entrada"),
            ]) + "\n"
-           + painel("📅 Minha semana", "Agenda", "Esta semana") + "\n"
-           + painel("📈 Progresso de hoje", "Agenda", "Progresso de hoje") + "\n"
-           + painel("☀️ Meu dia — hoje e atrasadas", "Agenda", "Hoje") + "\n"
-           + painel("📋 Todas as pendentes", "Agenda", "Todas as pendentes") + "\n"
-           + painel("🔁 Hábitos de hoje", "Diário", "Hoje") + "\n"
-           + "## 🔭 Visão geral\n"
-           + painel("⏳ Vencimentos (30 dias)", "Agenda", "Vencimentos") + "\n"
-           + painel("💳 Contas da semana", "Agenda", "Contas da semana") + "\n"
-           + painel("🚀 Projetos ativos", "Agenda", "Projetos ativos") + "\n"
-           + painel("🔁 Hábitos da semana", "Diário", "Esta semana"))
+           + painel("☀️ Hoje", "Agenda", "Hoje (com progresso)") + "\n"
+           + painel("📋 Pendências", "Agenda", "Pendências") + "\n"
+           + painel("🔁 Hábitos da semana", "Diário", "Esta semana") + "\n"
+           + painel("🔭 Visão geral", "Agenda", "Visão geral"))
 add("🏠 Minha Central.md", central, "substituir")
 
 # =============================================================== 📅 Planejamento (Agenda)
