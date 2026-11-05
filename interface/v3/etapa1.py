@@ -111,9 +111,18 @@ def vista(nome, filtros, colunas_, extra="", ou=None):
     return f"  - type: table\n    name: \"{nome}\"\n    filters:\n      and:\n{f}    order:\n{c}{larguras(colunas_)}{extra}"
 
 
-LARGURAS = {"feita": 46, "file.name": 300, "formula.o_que": 150, "formula.quando": 120, "formula.dia": 160,
-            "area": 110, "hora": 80, "prioridade": 100, "projeto": 160, "status": 120, "prazo": 110,
-            "humor": 130, "energia": 100, "sono": 90, "valor": 100, "vencimento": 110}
+LARGURAS = {"feita": 46, "file.name": 280, "formula.o_que": 150, "formula.quando": 120, "formula.dia": 160,
+            "area": 110, "hora": 80, "prioridade": 100, "projeto": 170, "status": 120, "prazo": 110, "data": 110,
+            "humor": 130, "energia": 100, "sono": 90, "valor": 110, "vencimento": 120, "natureza": 110,
+            "categoria": 130, "formula.saldo": 110, "origem": 140, "periodicidade": 120, "proxima_cobranca": 140,
+            "moeda": 80, "valor_previsto": 130, "mes": 90, "valor_meta": 120, "valor_acumulado": 140,
+            "formula.progresso": 110, "formula.falta": 110, "valor_estimado": 130, "instituicao": 150,
+            "cliente": 160, "numero": 150, "vigencia_ate": 130, "contato": 160, "file.mtime": 140, "file.ctime": 140,
+            "autor": 160, "nota": 80, "tema": 160, "proxima_revisao": 140, "url": 220, "tempo_preparo": 130,
+            "tipo_treino": 130, "duracao_min": 110, "realizado": 90, "ultima_manutencao": 150,
+            "proxima_manutencao": 160, "garantia_ate": 130, "pessoa": 130, "documento": 130, "validade": 120,
+            "relacao": 120, "aniversario": 120, "evento": 130, "proxima_dose": 130, "destino": 150,
+            "data_ida": 110, "local": 140, "formula.grupo": 140, "formula.grupo_geral": 160}
 
 
 def larguras(colunas_):
