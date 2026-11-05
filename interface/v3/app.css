@@ -239,3 +239,9 @@ body.theme-dark {
   .sc-app .callout[data-callout="sc-grade-c"] .callout[data-callout^="sc-c-"] a.internal-link { font-size: .8em; }
 }
 .is-mobile .sc-app .callout[data-callout="sc-colunas"] > .callout-content { grid-template-columns: minmax(0, 1fr); gap: 0; }
+
+/* atalho "📂 Arquivos no Drive" no topo das páginas */
+.sc-app .callout[data-callout="sc-topo"] a.external-link {
+  color: var(--text-muted); text-decoration: none; background-image: none; padding-right: 0; font-size: .9em;
+}
+.sc-app .callout[data-callout="sc-topo"] a.external-link:hover { color: var(--text-normal); }
