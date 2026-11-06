@@ -39,6 +39,7 @@ const rest = (token, path, opts = {}) => fetch(`${REST}/${path}`, { ...opts,
 
 const sufixo = randomBytes(4).toString("hex");
 const criadas = [];
+const usuariasCriadas = [];
 async function usuaria(nome) {
   const email = `teste-edicao-${nome}-${sufixo}@example.com`;
   const password = randomBytes(18).toString("base64url");
@@ -65,7 +66,9 @@ async function usuaria(nome) {
   const tok = await fetch(`${AUTH}/oauth/token`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ grant_type: "authorization_code", code, redirect_uri: CHATGPT.redirect, client_id: CHATGPT.id, code_verifier: verifier }) }).then((x) => x.json());
   if (!tok.access_token) throw new Error("login OAuth de teste falhou");
-  return { id: u.id, token: tok.access_token };
+  const U = { id: u.id, token: tok.access_token };
+  usuariasCriadas.push(U);
+  return U;
 }
 async function nota(U, caminho, conteudo, propriedades, hash) {
   const r = await rest(U.token, "notas", { method: "POST", headers: { Prefer: "return=representation" },
@@ -191,10 +194,49 @@ try {
   check("buscar continua funcionando", !r.erro && /Máquina de lavar fictícia/.test(r.texto), r.texto);
   r = await tool(A.token, "fetch", { id: `nota:${nMaq.id}` });
   check("fetch (ChatGPT) traz caminho e versão", !r.erro && JSON.parse(r.texto).metadata?.versao === "h-maq-1", r.texto);
+
+  console.log("\n8) salvar_imagem (imagem pública de teste, nota fictícia)");
+  const IMGURL = "https://www.google.com/images/branding/googlelogo/2x/googlelogo_color_272x92dp.png";
+  const PECA = "04 - Projetos/Afiloop/👗 Peças/🧪 Vestido fictício.md";
+  await nota(A, PECA, "Peça fictícia.", { tipo: "peca", loja: "Shein" }, "h-peca-1");
+  r = await tool(A.token, "salvar_imagem", { url: IMGURL, nome: "🧪 Vestido fictício", nota: PECA });
+  let pi = await (await rest(A.token, `pedidos_vault?select=acao,caminho,dados&acao=eq.imagem&order=criado_em`)).json();
+  check("imagem por link: pedido criado e ligado à peça", !r.erro && pi.length === 1 && pi[0].caminho === "04 - Projetos/Afiloop/🖼️ Imagens/🧪 Vestido fictício.png" && pi[0].dados.nota === PECA && pi[0].dados.propriedade === "foto", r.texto + JSON.stringify(pi));
+  const obj = pi[0]?.dados?.objeto ?? "";
+  const baixa = (U) => fetch(`${p.url}/storage/v1/object/authenticated/vault-imagens/${obj}`, { headers: { apikey: k.publishable, Authorization: `Bearer ${U.token}` } });
+  const ga = await baixa(A);
+  check("a imagem guardada é da A e está na pasta dela", ga.ok && obj.startsWith(A.id + "/") && (await ga.arrayBuffer()).byteLength > 1000, String(ga.status));
+  check("B não consegue baixar a imagem da A", !(await baixa(B)).ok);
+  r = await tool(A.token, "salvar_imagem", { arquivo: { download_url: IMGURL, file_id: "file-teste" }, nome: "🧪 Arquivo enviado" });
+  check("imagem enviada como arquivo (formato do ChatGPT)", !r.erro && /PNG/.test(r.texto), r.texto);
+  for (const [desc, u] of [["http sem s", "http://www.google.com/x.png"], ["localhost", "https://localhost/x.png"], ["IP", "https://127.0.0.1/x.png"], ["rede interna", "https://servidor.internal/x.png"]]) {
+    r = await tool(A.token, "salvar_imagem", { url: u });
+    check(`link recusado: ${desc}`, r.erro, r.texto);
+  }
+  r = await tool(A.token, "salvar_imagem", { url: "https://www.example.com/" });
+  check("página que não é imagem é recusada", r.erro && /não é uma imagem/.test(r.texto), r.texto);
+  r = await tool(A.token, "salvar_imagem", { url: IMGURL, pasta: "05 - Sistema/Backups" });
+  check("pasta protegida é recusada", r.erro, r.texto);
+  r = await tool(A.token, "salvar_imagem", { url: IMGURL, pasta: "../fora" });
+  check("pasta fora do Vault é recusada", r.erro, r.texto);
+  r = await tool(B.token, "salvar_imagem", { url: IMGURL, nota: PECA });
+  check("B não liga imagem na nota da A", r.erro && /não encontrada/i.test(r.texto), r.texto);
+  const lista2 = await rpc(A.token, "tools/list");
+  const t = (lista2.body.result?.tools ?? []).find((x) => x.name === "salvar_imagem");
+  check("ChatGPT recebe o campo de arquivo (openai/fileParams)", JSON.stringify(t?._meta?.["openai/fileParams"]) === '["arquivo"]');
 } catch (e) {
   falhas++; console.log("  ✘ erro inesperado:", e.message);
 } finally {
   console.log("\n7) Limpeza");
+  for (const U of usuariasCriadas) {
+    const objs = await fetch(`${p.url}/storage/v1/object/list/vault-imagens`, { method: "POST",
+      headers: { apikey: k.publishable, Authorization: `Bearer ${U.token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ prefix: U.id, limit: 100 }) }).then((x) => x.json()).catch(() => []);
+    const nomes = (Array.isArray(objs) ? objs : []).map((o) => `${U.id}/${o.name}`);
+    if (nomes.length) await fetch(`${p.url}/storage/v1/object/vault-imagens`, { method: "DELETE",
+      headers: { apikey: k.publishable, Authorization: `Bearer ${U.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ prefixes: nomes }) });
+    console.log(`  imagens de teste apagadas: ${nomes.length}`);
+  }
   for (const id of criadas) console.log("  usuária de teste removida:", (await admin(`/admin/users/${id}`, { method: "DELETE" })).ok);
 }
 console.log(`\nResultado: ${ok} ok, ${falhas} falha(s)`);

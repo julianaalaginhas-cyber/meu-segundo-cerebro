@@ -35,7 +35,8 @@ const MAX_CHARS = 200000;
 // Nenhuma IA altera, move ou exclui estes arquivos.
 const PASTAS_PROTEGIDAS = ["05 - Sistema/Backups/", "05 - Sistema/Modelos/"];
 const NOTAS_PROTEGIDAS = [NOTA_CONFIG, NOTA_RESULTADO, NOTA_HISTORICO];
-const EDICOES = ["editar", "tarefa", "mover", "apagar"];
+const EDICOES = ["editar", "tarefa", "mover", "apagar", "imagem"];
+const IMAGEM_RE = /\.(png|jpe?g|webp|gif)$/i;
 const ORIGENS = { "944323a9-269c-4468-bdf0-01ea7e4b9613": "ChatGPT", "94c90271-9a50-4a65-b4d4-b345fa8043f5": "Claude" };
 const nomeOrigem = (o) => ORIGENS[o] || (String(o || "").startsWith("claude-code") ? "Claude Code" : String(o || "").startsWith("teste") ? "teste" : "outro app");
 
@@ -454,6 +455,42 @@ module.exports = class PonteSegundoCerebro extends Plugin {
     return `apagado (foi para a lixeira; cópia em ${backup})`;
   }
 
+  // Imagem pedida pela IA: o servidor já conferiu e guardou no bucket privado; aqui ela é baixada,
+  // conferida de novo, gravada no Vault sem sobrescrever nada e (se pedido) ligada à nota.
+  // A cópia temporária na nuvem é apagada no fim.
+  async salvarImagem(caminho, dados) {
+    if (!IMAGEM_RE.test(caminho) || /(^\/|\\|\.\.|\/\/)/.test(caminho) || caminho.split("/").some((x) => x.startsWith("."))
+        || PASTAS_PROTEGIDAS.some((x) => caminho.startsWith(x))) return "recusado: caminho de imagem não permitido";
+    const objeto = String(dados.objeto || "");
+    if (!objeto.startsWith(`${this.sessao?.user_id}/`) || objeto.includes("..")) return "recusado: imagem inválida";
+    const tk = await this.token();
+    if (!tk) throw new Error("sem_login");
+    const base = `${this.settings.supabaseUrl}/storage/v1/object`;
+    const cab = { apikey: this.settings.supabaseKey, Authorization: `Bearer ${tk}` };
+    const r = await requestUrl({ url: `${base}/authenticated/vault-imagens/${objeto}`, method: "GET", headers: cab, throw: false });
+    if (r.status >= 300) return `erro: não consegui baixar a imagem (${r.status})`;
+    const b = new Uint8Array(r.arrayBuffer);
+    const ehImagem = (b[0] === 0xff && b[1] === 0xd8) || (b[0] === 0x89 && b[1] === 0x50) || (b[0] === 0x47 && b[1] === 0x49)
+      || (b[0] === 0x52 && b[1] === 0x49 && b[8] === 0x57 && b[9] === 0x45);
+    if (!ehImagem || b.length > 10 * 1024 * 1024) return "recusado: o arquivo não é uma imagem válida";
+    const pasta = caminho.split("/").slice(0, -1).join("/");
+    if (pasta) await this.garantirPasta(pasta);
+    const ext = caminho.match(IMAGEM_RE)[0];
+    const semExt = caminho.slice(0, -ext.length);
+    let destino = caminho;
+    for (let i = 2; this.app.vault.getAbstractFileByPath(destino) || await this.app.vault.adapter.exists(destino); i++) destino = `${semExt} ${i}${ext}`;
+    await this.app.vault.createBinary(destino, r.arrayBuffer);
+    let ligado = "";
+    if (dados.nota) {
+      const nota = normalizePath(String(dados.nota));
+      const prop = String(dados.propriedade || "foto");
+      const res = await this.editarComBackup(nota, "", dados.nota_hash, { propriedades: { [prop]: `[[${destino}]]` } });
+      ligado = res.startsWith("editado") ? `; ligada em '${prop}' de ${nota}` : `; NÃO ligada à nota (${res})`;
+    }
+    try { await requestUrl({ url: `${base}/vault-imagens/${objeto}`, method: "DELETE", headers: cab, throw: false }); } catch {}
+    return `imagem salva em ${destino}${ligado}`;
+  }
+
   // Histórico legível no próprio Vault: data, ação, nota, quem pediu e resultado. Nunca o conteúdo.
   async registrarHistorico(linhas) {
     if (!linhas.length) return;
@@ -636,7 +673,10 @@ module.exports = class PonteSegundoCerebro extends Plugin {
       let resultado;
       try {
         const caminho = normalizePath(p.caminho);
-        if (!caminhoSeguro(caminho)) {
+        if (p.acao === "imagem") {
+          resultado = await this.salvarImagem(caminho, p.dados || {});
+          if (resultado.startsWith("imagem salva")) n++;
+        } else if (!caminhoSeguro(caminho)) {
           resultado = "recusado: caminho não permitido";
         } else if (p.acao === "substituir") {
           resultado = await this.substituirComBackup(caminho, p.conteudo);

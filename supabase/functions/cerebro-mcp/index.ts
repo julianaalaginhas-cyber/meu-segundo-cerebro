@@ -302,6 +302,36 @@ const TOOLS = [
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   },
   {
+    name: "salvar_imagem",
+    title: "Salvar imagem no Obsidian",
+    description:
+      "Guarda uma imagem (JPG, PNG, WEBP ou GIF, até 10 MB) como arquivo no Vault e, se pedido, liga a imagem a uma " +
+      "nota (ex.: a foto de uma peça do Afiloop vai para a propriedade 'foto' da nota da peça, e aparece na vitrine). " +
+      "Use 'arquivo' para uma imagem que a usuária enviou ou que foi gerada nesta conversa, ou 'url' para o link " +
+      "https direto da imagem (ex.: foto do produto na Shein/Shopee). Pasta padrão: '04 - Projetos/Afiloop/🖼️ Imagens'. " +
+      "Nunca sobrescreve: se já existir um arquivo com o mesmo nome, salva com outro número. " +
+      "Use só imagens que a usuária pediu para guardar.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        arquivo: {
+          type: "object", description: "Imagem enviada pela usuária ou gerada na conversa",
+          properties: { download_url: { type: "string" }, file_id: { type: "string" } },
+          required: ["download_url"],
+        },
+        url: { type: "string", maxLength: 2000, description: "Link https direto da imagem (se não usar 'arquivo')" },
+        nome: { type: "string", maxLength: 100, description: "Nome do arquivo, sem extensão (ex.: 'Vestido midi verde - Shein 123456')" },
+        pasta: { type: "string", maxLength: 200, description: "Pasta do Vault (padrão '04 - Projetos/Afiloop/🖼️ Imagens')" },
+        nota: { type: "string", maxLength: 300, description: "Caminho da nota que vai mostrar a imagem (opcional)" },
+        versao: { type: "string", maxLength: 64, description: "Campo 'versao' da nota, devolvido por 'ler' (opcional)" },
+        propriedade: { type: "string", maxLength: 60, description: "Propriedade da nota que recebe a imagem (padrão 'foto')" },
+      },
+      additionalProperties: false,
+    },
+    _meta: { "openai/fileParams": ["arquivo"] },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  },
+  {
     name: "ver_alteracoes",
     title: "Ver alterações pedidas",
     description:
@@ -497,6 +527,69 @@ function codigoConfirmacao(): string {
   return String(n).padStart(6, "0");
 }
 
+// ---------- imagens ----------
+const PASTA_IMAGENS = "04 - Projetos/Afiloop/🖼️ Imagens";
+const MAX_IMAGEM = 10 * 1024 * 1024;
+
+// Só links https públicos (nada de localhost, IP ou rede interna).
+function urlImagemSegura(u: string): URL {
+  let url: URL;
+  try { url = new URL(u); } catch { throw new ToolError("Link da imagem inválido."); }
+  const h = url.hostname.toLowerCase();
+  if (url.protocol !== "https:" || url.username || url.password || !h.includes(".") ||
+      /^[\d.]+$/.test(h) || h.includes(":") || h === "localhost" || /\.(local|internal|localhost)$/.test(h)) {
+    throw new ToolError("Use um link https público e direto da imagem.");
+  }
+  return url;
+}
+
+// Confere pelo conteúdo (não pelo nome) que é mesmo uma imagem permitida.
+function tipoImagem(b: Uint8Array): { ext: string; mime: string } | null {
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return { ext: "jpg", mime: "image/jpeg" };
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return { ext: "png", mime: "image/png" };
+  if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return { ext: "gif", mime: "image/gif" };
+  if (b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) return { ext: "webp", mime: "image/webp" };
+  return null;
+}
+
+async function baixarImagem(origem: string, confiavel: boolean): Promise<Uint8Array> {
+  const url = confiavel ? new URL(origem) : urlImagemSegura(origem);
+  if (url.protocol !== "https:") throw new ToolError("A imagem precisa vir de um link https.");
+  let r: Response;
+  try {
+    r = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(20000), headers: { Accept: "image/*" } });
+  } catch { throw new ToolError("Não consegui baixar a imagem (o link não respondeu). Tente outro link ou envie o arquivo."); }
+  if (!confiavel) urlImagemSegura(r.url || url.href); // o redirecionamento também precisa ser público
+  if (!r.ok) throw new ToolError(`Não consegui baixar a imagem (o site respondeu ${r.status}).`);
+  if (Number(r.headers.get("content-length") ?? 0) > MAX_IMAGEM) throw new ToolError("Imagem grande demais (máx. 10 MB).");
+  const leitor = r.body?.getReader();
+  if (!leitor) throw new ToolError("A imagem veio vazia.");
+  const partes: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await leitor.read();
+    if (done) break;
+    total += value.length;
+    if (total > MAX_IMAGEM) { await leitor.cancel(); throw new ToolError("Imagem grande demais (máx. 10 MB)."); }
+    partes.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let o = 0;
+  for (const p of partes) { bytes.set(p, o); o += p.length; }
+  return bytes;
+}
+
+const limparNome = (s: string) => s.replace(/[\\/:*?"<>|#^\[\]\x00-\x1f]/g, " ").replace(/\s+/g, " ").replace(/^[.\s]+|[.\s]+$/g, "").slice(0, 90);
+
+function pastaSegura(v: unknown): string {
+  const p = (str(v, 200) ?? PASTA_IMAGENS).trim().replace(/^\/+|\/+$/g, "") || PASTA_IMAGENS;
+  if (/(\\|\.\.|\/\/|[<>:"|?*\x00-\x1f])/.test(p) || p.split("/").some((x) => x.startsWith(".")) ||
+      PASTAS_PROTEGIDAS.some((x) => (p + "/").startsWith(x))) {
+    throw new ToolError("Pasta não permitida para imagens.");
+  }
+  return p;
+}
+
 const TIPOS_TAREFA = ["tarefa", "compromisso", "lembrete"];
 const TIPOS_CONTA = ["lancamento", "conta"];
 const CHECKBOX_RE = /^\s*[-*+] \[[ xX]\] /;
@@ -669,6 +762,42 @@ async function callTool(auth: Auth, name: string, args: Record<string, unknown>)
       const p = await inserirPedido(auth, { caminho, acao: "apagar", base_hash: nota.hash });
       return text(`Exclusão confirmada e registrada para "${nota.titulo}". Em até ~2 minutos o Obsidian guarda uma cópia em '05 - Sistema/Backups/' e manda a nota para a lixeira (dá para recuperar). pedido_id: ${p.id}`);
     }
+    case "salvar_imagem": {
+      const arquivo = args.arquivo && typeof args.arquivo === "object" ? args.arquivo as Record<string, unknown> : null;
+      const origemArquivo = typeof arquivo?.download_url === "string" ? arquivo.download_url : "";
+      const origemUrl = str(args.url, 2000)?.trim() ?? "";
+      if (!origemArquivo && !origemUrl) throw new ToolError("Envie a imagem em 'arquivo' ou o link dela em 'url'.");
+      const pasta = pastaSegura(args.pasta);
+      let nota: string | undefined, notaHash: string | undefined, notaTitulo = "";
+      const propriedade = (str(args.propriedade, 60) ?? "foto").trim() || "foto";
+      if (!CHAVE_RE.test(propriedade)) throw new ToolError("Nome de propriedade inválido.");
+      if (args.nota) {
+        nota = caminhoNota(args.nota);
+        const n = await notaAtual(auth, nota, str(args.versao, 64));
+        notaHash = n.hash; notaTitulo = n.titulo;
+        await semPendente(auth, nota);
+      }
+      // O arquivo enviado no ChatGPT vem por um link temporário do próprio ChatGPT; links informados
+      // pela IA passam pela checagem de link público.
+      const bytes = await baixarImagem(origemArquivo || origemUrl, Boolean(origemArquivo) && /^https:\/\//.test(origemArquivo));
+      const tipo = tipoImagem(bytes);
+      if (!tipo) throw new ToolError("O arquivo não é uma imagem JPG, PNG, WEBP ou GIF.");
+      const nome = limparNome(str(args.nome, 100) ?? "") || limparNome(notaTitulo) || `Imagem ${hojeRecife()}`;
+      const caminho = `${pasta}/${nome}.${tipo.ext}`;
+      if (caminho.length > 300) throw new ToolError("Nome ou pasta longos demais.");
+      const objeto = `${auth.userId}/${crypto.randomUUID()}.${tipo.ext}`;
+      const { error: eUp } = await auth.db.storage.from("vault-imagens").upload(objeto, bytes, { contentType: tipo.mime, upsert: false });
+      if (eUp) throw new Error(`storage:${(eUp as { statusCode?: string }).statusCode ?? "erro"}`);
+      const p = await inserirPedido(auth, {
+        caminho, acao: "imagem",
+        dados: { objeto, tamanho: bytes.length, ...(nota ? { nota, nota_hash: notaHash, propriedade } : {}) },
+      });
+      return text(
+        `Imagem conferida (${tipo.ext.toUpperCase()}, ${Math.round(bytes.length / 1024)} KB). Em até ~2 minutos o Obsidian ` +
+        `salva em "${caminho}"` + (nota ? ` e coloca na propriedade '${propriedade}' de "${notaTitulo}"` : "") +
+        `. Confira com ver_alteracoes. pedido_id: ${p.id}`,
+      );
+    }
     case "ver_alteracoes": {
       const limite = Math.min(Math.max(Number(args.limite ?? 10) || 10, 1), 50);
       const filtro = str(args.caminho, 300)?.trim().replace(/^\/+/, "");
@@ -719,11 +848,12 @@ async function callTool(auth: Auth, name: string, args: Record<string, unknown>)
 }
 
 // Guarda o motivo de uma alteração recusada (sem conteúdo da nota) para aparecer em ver_alteracoes.
-const EDICAO_TOOLS = ["editar_nota", "atualizar_tarefa", "mover_nota", "excluir_nota", "apagar_nota"];
+const EDICAO_TOOLS = ["editar_nota", "atualizar_tarefa", "mover_nota", "excluir_nota", "apagar_nota", "salvar_imagem"];
 async function registrarRecusa(auth: Auth, ferramenta: string, args: Record<string, unknown> | undefined, e: unknown) {
   try {
     const motivo = e instanceof ToolError ? e.message : "erro interno do servidor";
-    const caminho = typeof args?.caminho === "string" ? args.caminho.slice(0, 300) : null;
+    const c = args?.caminho ?? args?.nota;
+    const caminho = typeof c === "string" ? c.slice(0, 300) : null;
     await auth.db.from("recusas_mcp").insert({ usuario_id: auth.userId, ferramenta, caminho, motivo: motivo.slice(0, 400), origem: auth.clientId ?? "mcp" });
   } catch { /* o registro nunca pode atrapalhar a resposta */ }
 }
@@ -760,7 +890,8 @@ async function handleRpc(auth: Auth, msg: RpcReq) {
             "excluir_nota sempre exige perguntar à usuária e receber um 'sim' claro antes da 2ª chamada. " +
             "As mudanças são aplicadas pelo Obsidian do computador principal em até ~2 minutos; confira com 'ver_alteracoes'. " +
             "Projeto Afiloop (moda, afiliados Shein/Shopee): notas em '04 - Projetos/Afiloop/' (posts, peças, looks, " +
-            "grifes); leia a nota '🚀 Afiloop' antes de criar ou mudar posts e siga as regras dela: não inventar preço " +
+            "grifes); fotos das peças e imagens dos posts vão para o Vault com salvar_imagem (ligadas à propriedade 'foto' da nota); " +
+            "leia a nota '🚀 Afiloop' antes de criar ou mudar posts e siga as regras dela: não inventar preço " +
             "nem característica, comparativos só de estética, nada publica sem aprovação da usuária.",
         });
         break;
