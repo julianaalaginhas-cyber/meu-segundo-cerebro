@@ -305,6 +305,32 @@ module.exports = class PonteSegundoCerebro extends Plugin {
     return `substituído (backup em ${destino})`;
   }
 
+  // Edita uma nota .md existente (inclusive pessoal) pedida pelo Claude/ChatGPT.
+  // Só aplica se a nota ainda for a mesma versão que a IA leu (hash do espelho) e
+  // sempre guarda uma cópia antes em "05 - Sistema/Backups/<data-hora>/".
+  async editarComBackup(caminho, conteudo, baseHash) {
+    if (!caminho.endsWith(".md") || caminho.startsWith(".obsidian/") || caminho.startsWith("05 - Sistema/Backups/")) {
+      return "recusado: só notas .md fora dos backups podem ser editadas";
+    }
+    const f = this.app.vault.getAbstractFileByPath(caminho);
+    if (!(f instanceof TFile)) return "recusado: a nota não existe (use criar)";
+    if (typeof conteudo !== "string" || !conteudo.trim()) return "recusado: conteúdo vazio";
+    const nota = await this.montarNota(f);
+    if (!nota) return "recusado: nota privada";
+    if (!baseHash || nota.hash !== baseHash) return "recusado: a nota mudou depois que a IA leu (nada foi alterado)";
+    const atual = await this.app.vault.read(f);
+    if (atual === conteudo) return "editado (sem mudanças)";
+    const carimbo = new Date().toISOString().slice(0, 16).replace("T", " ").replace(":", "h");
+    const pastaBackup = `05 - Sistema/Backups/${carimbo}`;
+    await this.garantirPasta(pastaBackup);
+    const nomeBackup = caminho.replace(/\//g, " ∕ ");
+    let destino = `${pastaBackup}/${nomeBackup}`;
+    for (let i = 2; await this.app.vault.adapter.exists(destino); i++) destino = `${pastaBackup}/${i} - ${nomeBackup}`;
+    await this.app.vault.create(destino, atual);
+    await this.app.vault.modify(f, conteudo);
+    return `editado (backup em ${destino})`;
+  }
+
   // ---------- configuração do Obsidian (favoritos, página inicial, captura, diário) ----------
   // Lê o bloco JSON da nota de configuração. Aplica uma vez por versão, só no dispositivo
   // principal (ou quando a usuária roda o comando). Sempre guarda cópia dos arquivos antes.
@@ -465,7 +491,7 @@ module.exports = class PonteSegundoCerebro extends Plugin {
   }
 
   async aplicarPedidos() {
-    const pend = await this.rest("GET", "pedidos_vault?select=id,caminho,conteudo,acao&aplicado_em=is.null&order=criado_em&limit=50");
+    const pend = await this.rest("GET", "pedidos_vault?select=id,caminho,conteudo,acao,base_hash&aplicado_em=is.null&order=criado_em&limit=50");
     if (!pend?.length) return 0;
     let n = 0;
     for (const p of pend) {
@@ -477,6 +503,9 @@ module.exports = class PonteSegundoCerebro extends Plugin {
         } else if (p.acao === "substituir") {
           resultado = await this.substituirComBackup(caminho, p.conteudo);
           if (resultado.startsWith("substituído") || resultado === "criado") n++;
+        } else if (p.acao === "editar") {
+          resultado = await this.editarComBackup(caminho, p.conteudo, p.base_hash);
+          if (resultado.startsWith("editado (backup")) n++;
         } else if (caminho.startsWith(".obsidian/")) {
           const real = `${this.app.vault.configDir}/${caminho.slice(".obsidian/".length)}`;
           const dir = real.split("/").slice(0, -1).join("/");
@@ -500,7 +529,7 @@ module.exports = class PonteSegundoCerebro extends Plugin {
       await this.rest("PATCH", `pedidos_vault?id=eq.${p.id}`, { aplicado_em: new Date().toISOString(), resultado },
         { Prefer: "return=minimal" });
     }
-    if (n) new Notice(`Segundo Cérebro: ${n} arquivo(s) novo(s) criado(s) pelo Claude.`);
+    if (n) new Notice(`Segundo Cérebro: ${n} arquivo(s) criado(s) ou atualizado(s) pelo Claude.`);
     return n;
   }
 

@@ -196,6 +196,25 @@ const TOOLS = [
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
+  {
+    name: "editar_nota",
+    title: "Editar nota no Obsidian",
+    description:
+      "Pede ao Obsidian para trocar o conteúdo de uma nota .md que JÁ EXISTE. Antes, use 'ler' na nota e " +
+      "envie o arquivo inteiro já editado: propriedades (frontmatter entre ---) + texto. O plugin só aplica se " +
+      "a nota não tiver mudado desde a leitura e sempre guarda uma cópia em '05 - Sistema/Backups/'. " +
+      "Só use quando a usuária pedir para mudar/atualizar a nota; preserve tudo que não foi pedido para mudar.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        caminho: { type: "string", maxLength: 300, description: "Caminho da nota existente (campo 'caminho' de buscar/ler)" },
+        conteudo: { type: "string", maxLength: 200000, description: "Arquivo completo novo, com o frontmatter" },
+      },
+      required: ["caminho", "conteudo"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
   // Compatibilidade com o formato "search/fetch" usado pelo ChatGPT.
   {
     name: "search",
@@ -297,6 +316,22 @@ async function callTool(auth: Auth, name: string, args: Record<string, unknown>)
         .select("id, caminho").single();
       if (error) throw dbErr(error);
       return text(`Pedido registrado. O Obsidian vai criar "${data.caminho}" na próxima sincronização do computador principal (se ainda não existir).`);
+    }
+    case "editar_nota": {
+      const caminho = (str(args.caminho, 300) ?? "").trim().replace(/^\/+/, "");
+      const conteudo = str(args.conteudo, 200000) ?? "";
+      if (!caminhoSeguro(caminho) || !caminho.endsWith(".md") || caminho.startsWith("05 - Sistema/Backups/")) {
+        throw new ToolError("Caminho não permitido. Só notas .md existentes (fora de '05 - Sistema/Backups').");
+      }
+      if (!conteudo.trim()) throw new ToolError("conteudo vazio: para apagar uma nota, peça para a usuária apagar no Obsidian.");
+      const { data: nota, error: e1 } = await auth.db.from("notas").select("hash").eq("caminho", caminho).maybeSingle();
+      if (e1) throw dbErr(e1);
+      if (!nota) throw new ToolError("Nota não encontrada no espelho (ainda não sincronizou, é privada ou o caminho está errado). Use 'buscar' para achar o caminho.");
+      const { data, error } = await auth.db.from("pedidos_vault")
+        .insert({ usuario_id: auth.userId, caminho, conteudo, acao: "editar", base_hash: nota.hash, origem: auth.clientId ?? "mcp" })
+        .select("id, caminho").single();
+      if (error) throw dbErr(error);
+      return text(`Pedido de edição registrado. O Obsidian vai atualizar "${data.caminho}" na próxima sincronização (com cópia de segurança; se a nota tiver mudado desde a leitura, nada é alterado).`);
     }
     case "search": {
       const rows = await buscar(auth, str(args.query, 500) ?? "", 10);
