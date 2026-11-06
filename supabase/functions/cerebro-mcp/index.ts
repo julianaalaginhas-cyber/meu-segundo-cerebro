@@ -851,7 +851,7 @@ async function callTool(auth: Auth, name: string, args: Record<string, unknown>)
 const EDICAO_TOOLS = ["editar_nota", "atualizar_tarefa", "mover_nota", "excluir_nota", "apagar_nota", "salvar_imagem"];
 async function registrarRecusa(auth: Auth, ferramenta: string, args: Record<string, unknown> | undefined, e: unknown) {
   try {
-    const motivo = e instanceof ToolError ? e.message : "erro interno do servidor";
+    const motivo = e instanceof ToolError ? e.message : `erro interno do servidor (${String((e as Error)?.message ?? "").slice(0, 60)})`;
     const c = args?.caminho ?? args?.nota;
     const caminho = typeof c === "string" ? c.slice(0, 300) : null;
     await auth.db.from("recusas_mcp").insert({ usuario_id: auth.userId, ferramenta, caminho, motivo: motivo.slice(0, 400), origem: auth.clientId ?? "mcp" });
@@ -889,8 +889,12 @@ async function handleRpc(auth: Auth, msg: RpcReq) {
             "acrescentar), atualizar_tarefa (feita, prazo, prioridade), mover_nota ou excluir_nota. Datas em AAAA-MM-DD. " +
             "excluir_nota sempre exige perguntar à usuária e receber um 'sim' claro antes da 2ª chamada. " +
             "As mudanças são aplicadas pelo Obsidian do computador principal em até ~2 minutos; confira com 'ver_alteracoes'. " +
-            "Projeto Afiloop (moda, afiliados Shein/Shopee): notas em '04 - Projetos/Afiloop/' (posts, peças, looks, " +
-            "grifes); fotos das peças e imagens dos posts vão para o Vault com salvar_imagem (ligadas à propriedade 'foto' da nota); " +
+            "Projeto Afiloop (afiliados Shein/Shopee): notas em '04 - Projetos/Afiloop/' (posts, peças, looks, " +
+            "grifes). Toda peça, look e post tem a propriedade 'nicho' com UM destes valores exatos: Fashion, Beauty, Casa " +
+            "(casa, decoração e cozinha) ou Maternidade — sempre preencha. Fotos e vídeos de produto no Google Drive ficam em " +
+            "'Afiloop/👗 Fashion', 'Afiloop/💄 Beauty', 'Afiloop/🏠 Casa, decoração e cozinha' ou 'Afiloop/🍼 Maternidade', " +
+            "numa subpasta com o código do produto; o link da pasta vai na propriedade 'drive' da peça. Outras regras do " +
+            "Afiloop: fotos das peças e imagens dos posts vão para o Vault com salvar_imagem (ligadas à propriedade 'foto' da nota); " +
             "leia a nota '🚀 Afiloop' antes de criar ou mudar posts e siga as regras dela: não inventar preço " +
             "nem característica, comparativos só de estética, nada publica sem aprovação da usuária.",
         });
