@@ -308,7 +308,7 @@ const TOOLS = [
       "Guarda uma imagem (JPG, PNG, WEBP ou GIF, até 10 MB) como arquivo no Vault e, se pedido, liga a imagem a uma " +
       "nota (ex.: a foto de uma peça do Afiloop vai para a propriedade 'foto' da nota da peça, e aparece na vitrine). " +
       "Use 'arquivo' para uma imagem que a usuária enviou ou que foi gerada nesta conversa, ou 'url' para o link " +
-      "https direto da imagem (ex.: foto do produto na Shein/Shopee). Pasta padrão: '04 - Projetos/Afiloop/🖼️ Imagens'. " +
+      "https direto da imagem (ex.: foto do produto na loja (Shein, Shopee, Mercado Livre...)). Pasta padrão: '04 - Projetos/Afiloop/🖼️ Imagens'. " +
       "Nunca sobrescreve: se já existir um arquivo com o mesmo nome, salva com outro número. " +
       "Use só imagens que a usuária pediu para guardar.",
     inputSchema: {
@@ -889,7 +889,7 @@ async function handleRpc(auth: Auth, msg: RpcReq) {
             "acrescentar), atualizar_tarefa (feita, prazo, prioridade), mover_nota ou excluir_nota. Datas em AAAA-MM-DD. " +
             "excluir_nota sempre exige perguntar à usuária e receber um 'sim' claro antes da 2ª chamada. " +
             "As mudanças são aplicadas pelo Obsidian do computador principal em até ~2 minutos; confira com 'ver_alteracoes'. " +
-            "Projeto Afiloop (afiliados Shein/Shopee): notas em '04 - Projetos/Afiloop/' (posts, peças, looks, " +
+            "Projeto Afiloop (afiliados de Shein, Shopee, Mercado Livre e outras lojas; a loja vai na propriedade 'loja'): notas em '04 - Projetos/Afiloop/' (posts, peças, looks, " +
             "grifes). Toda peça, look e post tem a propriedade 'nicho' com UM destes valores exatos: Fashion, Beauty, Casa " +
             "(casa, decoração e cozinha) ou Maternidade — sempre preencha. Fotos e vídeos de produto no Google Drive ficam em " +
             "'Afiloop/👗 Fashion', 'Afiloop/💄 Beauty', 'Afiloop/🏠 Casa, decoração e cozinha' ou 'Afiloop/🍼 Maternidade', " +
