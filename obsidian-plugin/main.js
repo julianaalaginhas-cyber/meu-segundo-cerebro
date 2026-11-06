@@ -5,8 +5,9 @@
  *  - Remove da nuvem as notas apagadas; trata renomeações.
  *  - No "dispositivo principal": reconcilia tudo periodicamente, traz para
  *    "00 - Entrada" as memórias que o Claude/ChatGPT salvaram e cria os arquivos
- *    que o Claude pediu (fila pedidos_vault). Só cria arquivos NOVOS: nunca
- *    sobrescreve, nunca apaga; só .md/.base e snippets CSS.
+ *    que o Claude pediu (fila pedidos_vault): cria arquivos novos (nunca sobrescreve)
+ *    e, a pedido, edita, atualiza tarefas, move ou exclui notas existentes — sempre
+ *    com trava de versão, cópia em "05 - Sistema/Backups/" e registro no histórico.
  *
  * Segurança:
  *  - Login com e-mail/senha do Supabase; a SENHA NUNCA é guardada.
@@ -29,7 +30,14 @@ const LS_PRINCIPAL = "ponte-segundo-cerebro:principal";
 const LS_CONFIG = "ponte-segundo-cerebro:config-aplicada";
 const NOTA_CONFIG = "05 - Sistema/⚙️ Configuração do Segundo Cérebro.md";
 const NOTA_RESULTADO = "05 - Sistema/⚙️ Resultado da configuração.md";
+const NOTA_HISTORICO = "05 - Sistema/📜 Histórico de alterações da IA.md";
 const MAX_CHARS = 200000;
+// Nenhuma IA altera, move ou exclui estes arquivos.
+const PASTAS_PROTEGIDAS = ["05 - Sistema/Backups/", "05 - Sistema/Modelos/"];
+const NOTAS_PROTEGIDAS = [NOTA_CONFIG, NOTA_RESULTADO, NOTA_HISTORICO];
+const EDICOES = ["editar", "tarefa", "mover", "apagar"];
+const ORIGENS = { "944323a9-269c-4468-bdf0-01ea7e4b9613": "ChatGPT", "94c90271-9a50-4a65-b4d4-b345fa8043f5": "Claude" };
+const nomeOrigem = (o) => ORIGENS[o] || (String(o || "").startsWith("claude-code") ? "Claude Code" : String(o || "").startsWith("teste") ? "teste" : "outro app");
 
 function caminhoSeguro(c) {
   if (typeof c !== "string" || c.length < 4 || c.length > 300) return false;
@@ -305,54 +313,140 @@ module.exports = class PonteSegundoCerebro extends Plugin {
     return `substituído (backup em ${destino})`;
   }
 
-  // Edita uma nota .md existente (inclusive pessoal) pedida pelo Claude/ChatGPT.
-  // Só aplica se a nota ainda for a mesma versão que a IA leu (hash do espelho) e
-  // sempre guarda uma cópia antes em "05 - Sistema/Backups/<data-hora>/".
-  async editarComBackup(caminho, conteudo, baseHash) {
-    if (!caminho.endsWith(".md") || caminho.startsWith(".obsidian/") || caminho.startsWith("05 - Sistema/Backups/")) {
-      return "recusado: só notas .md fora dos backups podem ser editadas";
-    }
-    const f = this.app.vault.getAbstractFileByPath(caminho);
-    if (!(f instanceof TFile)) return "recusado: a nota não existe (use criar)";
-    if (typeof conteudo !== "string" || !conteudo.trim()) return "recusado: conteúdo vazio";
-    const nota = await this.montarNota(f);
-    if (!nota) return "recusado: nota privada";
-    if (!baseHash || nota.hash !== baseHash) return "recusado: a nota mudou depois que a IA leu (nada foi alterado)";
-    const atual = await this.app.vault.read(f);
-    if (atual === conteudo) return "editado (sem mudanças)";
-    const carimbo = new Date().toISOString().slice(0, 16).replace("T", " ").replace(":", "h");
-    const pastaBackup = `05 - Sistema/Backups/${carimbo}`;
-    await this.garantirPasta(pastaBackup);
-    const nomeBackup = caminho.replace(/\//g, " ∕ ");
-    let destino = `${pastaBackup}/${nomeBackup}`;
-    for (let i = 2; await this.app.vault.adapter.exists(destino); i++) destino = `${pastaBackup}/${i} - ${nomeBackup}`;
-    await this.app.vault.create(destino, atual);
-    await this.app.vault.modify(f, conteudo);
-    return `editado (backup em ${destino})`;
+  // ---------- edição de notas existentes pedida pelo Claude/ChatGPT ----------
+  // Regras comuns: só .md fora de pastas protegidas, nunca nota privada, só se a nota ainda for
+  // a mesma versão que a IA leu (hash do espelho), e sempre uma cópia antes em
+  // "05 - Sistema/Backups/<data-hora>/". Tudo fica registrado no histórico (sem conteúdo).
+  protegido(caminho) {
+    return !caminho.endsWith(".md") || caminho.startsWith(".obsidian/")
+      || PASTAS_PROTEGIDAS.some((p) => caminho.startsWith(p)) || NOTAS_PROTEGIDAS.includes(caminho);
   }
 
-  // Apaga uma nota .md existente a pedido da usuária (via Claude/ChatGPT).
-  // Mesma trava do editar (hash da versão lida), cópia em Backups e arquivo para a lixeira.
-  async apagarComBackup(caminho, baseHash) {
-    if (!caminho.endsWith(".md") || caminho.startsWith(".obsidian/") || caminho.startsWith("05 - Sistema/")) {
-      return "recusado: só notas .md fora de '05 - Sistema' podem ser apagadas";
-    }
+  async conferirNota(caminho, baseHash) {
+    if (this.protegido(caminho)) return { erro: "recusado: nota protegida (configuração, histórico, modelos ou backups)" };
     const f = this.app.vault.getAbstractFileByPath(caminho);
-    if (!(f instanceof TFile)) return "recusado: a nota não existe";
+    if (!(f instanceof TFile)) return { erro: "recusado: a nota não existe (nada foi criado)" };
     const nota = await this.montarNota(f);
-    if (!nota) return "recusado: nota privada";
-    if (!baseHash || nota.hash !== baseHash) return "recusado: a nota mudou depois que a IA leu (nada foi apagado)";
-    const atual = await this.app.vault.read(f);
+    if (!nota) return { erro: "recusado: nota privada" };
+    if (!baseHash || nota.hash !== baseHash) return { erro: "recusado: a nota mudou depois que a IA leu (nada foi alterado)" };
+    return { f };
+  }
+
+  async guardarBackup(caminho, texto) {
     const carimbo = new Date().toISOString().slice(0, 16).replace("T", " ").replace(":", "h");
     const pastaBackup = `05 - Sistema/Backups/${carimbo}`;
     await this.garantirPasta(pastaBackup);
     const nomeBackup = caminho.replace(/\//g, " ∕ ");
     let destino = `${pastaBackup}/${nomeBackup}`;
     for (let i = 2; await this.app.vault.adapter.exists(destino); i++) destino = `${pastaBackup}/${i} - ${nomeBackup}`;
-    await this.app.vault.create(destino, atual);
-    if (this.app.fileManager.trashFile) await this.app.fileManager.trashFile(f);
-    else await this.app.vault.trash(f, true);
-    return `apagado (foi para a lixeira; cópia em ${destino})`;
+    await this.app.vault.create(destino, texto);
+    return destino;
+  }
+
+  // Edita: arquivo inteiro (conteudo) e/ou mudanças pequenas em dados:
+  //   propriedades {k: v | null}, trocar [{de, para}], acrescentar "texto", item+concluida (checklist).
+  async editarComBackup(caminho, conteudo, baseHash, dados) {
+    const ok = await this.conferirNota(caminho, baseHash);
+    if (ok.erro) return ok.erro;
+    const f = ok.f;
+    dados = dados && typeof dados === "object" ? dados : {};
+    const temConteudo = typeof conteudo === "string" && conteudo.trim().length > 0;
+    const props = dados.propriedades && typeof dados.propriedades === "object" ? dados.propriedades : null;
+    if (!temConteudo && !props && !dados.trocar && !dados.acrescentar && !dados.item) return "recusado: nada para alterar";
+    const atual = await this.app.vault.read(f);
+    let novo = temConteudo ? conteudo : atual;
+    const feito = [];
+    if (temConteudo) feito.push("nota reescrita");
+
+    // corpo = texto depois do frontmatter (trocas e checklist nunca mexem nas propriedades)
+    const m = novo.match(/^---\r?\n[\s\S]*?\r?\n---[ \t]*(\r?\n|$)/);
+    const cabeca = m ? m[0] : "";
+    let corpo = novo.slice(cabeca.length);
+    for (const t of Array.isArray(dados.trocar) ? dados.trocar : []) {
+      if (typeof t?.de !== "string" || !t.de || typeof t.para !== "string") return "recusado: troca inválida";
+      const n = corpo.split(t.de).length - 1;
+      if (n !== 1) return `recusado: o trecho "${t.de.slice(0, 40)}" aparece ${n} vez(es) (nada foi alterado)`;
+      corpo = corpo.replace(t.de, () => t.para);
+    }
+    if (Array.isArray(dados.trocar) && dados.trocar.length) feito.push(`${dados.trocar.length} trecho(s) trocado(s)`);
+    if (typeof dados.item === "string" && dados.item.trim()) {
+      const alvo = dados.item.trim().toLowerCase();
+      const linhas = corpo.split("\n");
+      const idx = linhas.map((l, i) => (/^\s*[-*+] \[[ xX]\] /.test(l) && l.toLowerCase().includes(alvo) ? i : -1)).filter((i) => i >= 0);
+      if (idx.length !== 1) return `recusado: ${idx.length} itens de checklist com esse texto (nada foi alterado)`;
+      linhas[idx[0]] = linhas[idx[0]].replace(/\[[ xX]\]/, dados.concluida ? "[x]" : "[ ]");
+      corpo = linhas.join("\n");
+      feito.push(dados.concluida ? "item marcado como feito" : "item desmarcado");
+    }
+    if (typeof dados.acrescentar === "string" && dados.acrescentar.trim()) {
+      corpo = corpo.replace(/\s*$/, "") + "\n\n" + dados.acrescentar.trim() + "\n";
+      feito.push("texto acrescentado");
+    }
+    novo = cabeca + corpo;
+
+    let mudouProps = false;
+    if (props) {
+      const fmAtual = { ...(this.app.metadataCache.getFileCache(f)?.frontmatter || {}) };
+      mudouProps = Object.entries(props).some(([k, v]) =>
+        v === null ? k in fmAtual : JSON.stringify(fmAtual[k]) !== JSON.stringify(v));
+    }
+    if (novo === atual && !mudouProps) return "editado (sem mudanças)";
+
+    const backup = await this.guardarBackup(caminho, atual);
+    if (novo !== atual) await this.app.vault.modify(f, novo);
+    if (props && mudouProps) {
+      await this.app.fileManager.processFrontMatter(f, (fm) => {
+        for (const [k, v] of Object.entries(props)) {
+          if (k === "position") continue;
+          if (v === null) delete fm[k]; else fm[k] = v;
+        }
+      });
+      feito.push("propriedades: " + Object.keys(props).join(", "));
+    }
+    return `editado: ${feito.join("; ")} (backup em ${backup})`;
+  }
+
+  // Move/renomeia sem sobrescrever. O Obsidian atualiza os links internos se a opção
+  // "Atualizar links internos automaticamente" estiver ligada.
+  async moverNota(caminho, destino, baseHash) {
+    if (!destino || !caminhoSeguro(destino) || this.protegido(destino)) return "recusado: destino não permitido";
+    const ok = await this.conferirNota(caminho, baseHash);
+    if (ok.erro) return ok.erro;
+    if (this.app.vault.getAbstractFileByPath(destino) || await this.app.vault.adapter.exists(destino)) {
+      return "recusado: já existe um arquivo no destino (nada foi movido)";
+    }
+    const pasta = destino.split("/").slice(0, -1).join("/");
+    if (pasta) await this.garantirPasta(pasta);
+    await this.app.fileManager.renameFile(ok.f, destino);
+    const links = this.app.vault.getConfig?.("alwaysUpdateLinks");
+    return `movido para ${destino}` + (links === false
+      ? " (atenção: links internos não atualizados; ligue 'Atualizar links internos automaticamente' em Configurações › Arquivos e links)"
+      : " (links internos atualizados)");
+  }
+
+  // Exclui: cópia em Backups e arquivo para a lixeira (recuperável).
+  async apagarComBackup(caminho, baseHash) {
+    if (caminho.startsWith("05 - Sistema/")) return "recusado: notas de '05 - Sistema' não podem ser excluídas";
+    const ok = await this.conferirNota(caminho, baseHash);
+    if (ok.erro) return ok.erro.replace("nada foi alterado", "nada foi apagado");
+    const backup = await this.guardarBackup(caminho, await this.app.vault.read(ok.f));
+    if (this.app.fileManager.trashFile) await this.app.fileManager.trashFile(ok.f);
+    else await this.app.vault.trash(ok.f, true);
+    return `apagado (foi para a lixeira; cópia em ${backup})`;
+  }
+
+  // Histórico legível no próprio Vault: data, ação, nota, quem pediu e resultado. Nunca o conteúdo.
+  async registrarHistorico(linhas) {
+    if (!linhas.length) return;
+    let f = this.app.vault.getAbstractFileByPath(NOTA_HISTORICO);
+    if (!(f instanceof TFile)) {
+      await this.garantirPasta("05 - Sistema");
+      f = await this.app.vault.create(NOTA_HISTORICO,
+        "---\ntipo: sistema\n---\n# 📜 Histórico de alterações da IA\n\n" +
+        "> O que o Claude/ChatGPT mudou nas notas existentes. Só caminhos e resultados, nunca o conteúdo.\n" +
+        "> Para desfazer uma edição ou exclusão, abra a cópia indicada em `05 - Sistema/Backups/`.\n\n");
+    }
+    await this.app.vault.process(f, (t) => t.replace(/\s*$/, "\n") + linhas.join("\n") + "\n");
   }
 
   // ---------- configuração do Obsidian (favoritos, página inicial, captura, diário) ----------
@@ -515,9 +609,10 @@ module.exports = class PonteSegundoCerebro extends Plugin {
   }
 
   async aplicarPedidos() {
-    const pend = await this.rest("GET", "pedidos_vault?select=id,caminho,conteudo,acao,base_hash&aplicado_em=is.null&order=criado_em&limit=50");
+    const pend = await this.rest("GET", "pedidos_vault?select=id,caminho,conteudo,acao,base_hash,dados,destino,origem&aplicado_em=is.null&order=criado_em&limit=50");
     if (!pend?.length) return 0;
     let n = 0;
+    const historico = [];
     for (const p of pend) {
       let resultado;
       try {
@@ -527,12 +622,17 @@ module.exports = class PonteSegundoCerebro extends Plugin {
         } else if (p.acao === "substituir") {
           resultado = await this.substituirComBackup(caminho, p.conteudo);
           if (resultado.startsWith("substituído") || resultado === "criado") n++;
-        } else if (p.acao === "editar") {
-          resultado = await this.editarComBackup(caminho, p.conteudo, p.base_hash);
-          if (resultado.startsWith("editado (backup")) n++;
+        } else if (p.acao === "editar" || p.acao === "tarefa") {
+          resultado = await this.editarComBackup(caminho, p.conteudo, p.base_hash, p.dados);
+          if (resultado.startsWith("editado:")) n++;
+        } else if (p.acao === "mover") {
+          resultado = await this.moverNota(caminho, p.destino ? normalizePath(p.destino) : "", p.base_hash);
+          if (resultado.startsWith("movido")) n++;
         } else if (p.acao === "apagar") {
           resultado = await this.apagarComBackup(caminho, p.base_hash);
           if (resultado.startsWith("apagado")) n++;
+        } else if (EDICOES.includes(p.acao)) {
+          resultado = "recusado: ação desconhecida (atualize o plugin)";
         } else if (caminho.startsWith(".obsidian/")) {
           const real = `${this.app.vault.configDir}/${caminho.slice(".obsidian/".length)}`;
           const dir = real.split("/").slice(0, -1).join("/");
@@ -553,10 +653,18 @@ module.exports = class PonteSegundoCerebro extends Plugin {
       } catch (e) {
         resultado = "erro: " + String(e.message || e).slice(0, 120);
       }
-      await this.rest("PATCH", `pedidos_vault?id=eq.${p.id}`, { aplicado_em: new Date().toISOString(), resultado },
+      const edicao = EDICOES.includes(p.acao);
+      // Nas edições, o conteúdo enviado não fica guardado na nuvem depois de aplicado.
+      await this.rest("PATCH", `pedidos_vault?id=eq.${p.id}`,
+        { aplicado_em: new Date().toISOString(), resultado, ...(edicao ? { conteudo: "", dados: null } : {}) },
         { Prefer: "return=minimal" });
+      if (edicao) {
+        const quando = new Date().toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+        historico.push(`- ${quando} · **${p.acao}** · \`${p.caminho}\`${p.destino ? ` → \`${p.destino}\`` : ""} · ${nomeOrigem(p.origem)} · ${resultado}`);
+      }
     }
-    if (n) new Notice(`Segundo Cérebro: ${n} arquivo(s) criado(s), atualizado(s) ou apagado(s) pelo Claude.`);
+    try { await this.registrarHistorico(historico); } catch (e) { console.warn("[Segundo Cérebro] histórico:", e.message); }
+    if (n) new Notice(`Segundo Cérebro: ${n} arquivo(s) criado(s), atualizado(s), movido(s) ou apagado(s) pela IA.`);
     return n;
   }
 

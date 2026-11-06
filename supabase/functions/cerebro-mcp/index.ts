@@ -32,7 +32,7 @@ const ALLOWED_CLIENT_IDS = (Deno.env.get("ALLOWED_CLIENT_IDS") ?? "")
   .split(",").map((s) => s.trim()).filter(Boolean);
 
 const SUPPORTED_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
-const SERVER_INFO = { name: "meu-segundo-cerebro", title: "Meu Segundo Cérebro", version: "0.1.0" };
+const SERVER_INFO = { name: "meu-segundo-cerebro", title: "Meu Segundo Cérebro", version: "0.2.0" };
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -200,38 +200,123 @@ const TOOLS = [
     name: "editar_nota",
     title: "Editar nota no Obsidian",
     description:
-      "Pede ao Obsidian para trocar o conteúdo de uma nota .md que JÁ EXISTE. Antes, use 'ler' na nota e " +
-      "envie o arquivo inteiro já editado: propriedades (frontmatter entre ---) + texto. O plugin só aplica se " +
-      "a nota não tiver mudado desde a leitura e sempre guarda uma cópia em '05 - Sistema/Backups/'. " +
-      "Só use quando a usuária pedir para mudar/atualizar a nota; preserve tudo que não foi pedido para mudar.",
+      "Atualiza uma nota .md que JÁ EXISTE, sem criar outra. Fluxo: 'buscar' → 'ler' (pegue 'caminho' e 'versao') → " +
+      "editar_nota. Prefira mudanças pequenas, que preservam todo o resto: 'propriedades' (mescla no frontmatter; " +
+      "valor null remove a propriedade), 'trocar' (troca trechos exatos do texto) e 'acrescentar' (adiciona texto no " +
+      "fim). Use 'conteudo' (arquivo inteiro, com frontmatter) só para reescrever a nota toda. " +
+      "Ex.: 'a última manutenção da máquina de lavar foi 05/11/2026' → propriedades {ultima_manutencao: '2026-11-05'}. " +
+      "Datas sempre AAAA-MM-DD. O plugin só aplica se a nota não mudou desde a leitura e guarda cópia em " +
+      "'05 - Sistema/Backups/'. A alteração aparece no Obsidian em até ~2 min (computador principal ligado); " +
+      "confira com 'ver_alteracoes'.",
     inputSchema: {
       type: "object",
       properties: {
         caminho: { type: "string", maxLength: 300, description: "Caminho da nota existente (campo 'caminho' de buscar/ler)" },
-        conteudo: { type: "string", maxLength: 200000, description: "Arquivo completo novo, com o frontmatter" },
+        versao: { type: "string", maxLength: 64, description: "Campo 'versao' devolvido por 'ler' (protege contra sobrescrever mudanças novas)" },
+        propriedades: {
+          type: "object", maxProperties: 40,
+          description: "Propriedades a definir/alterar (texto, número, sim/não, lista de textos) ou null para remover",
+          additionalProperties: { type: ["string", "number", "boolean", "array", "null"], items: { type: "string" } },
+        },
+        trocar: {
+          type: "array", maxItems: 20,
+          description: "Trocas de trechos do texto (sem o frontmatter). Cada 'de' precisa aparecer exatamente 1 vez.",
+          items: {
+            type: "object",
+            properties: { de: { type: "string", minLength: 1, maxLength: 5000 }, para: { type: "string", maxLength: 20000 } },
+            required: ["de", "para"], additionalProperties: false,
+          },
+        },
+        acrescentar: { type: "string", maxLength: 20000, description: "Texto a adicionar no fim da nota" },
+        conteudo: { type: "string", maxLength: 200000, description: "Arquivo completo novo (frontmatter + texto). Não combine com trocar/acrescentar." },
       },
-      required: ["caminho", "conteudo"],
+      required: ["caminho"],
       additionalProperties: false,
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
-    name: "apagar_nota",
-    title: "Apagar nota no Obsidian",
+    name: "atualizar_tarefa",
+    title: "Atualizar tarefa",
     description:
-      "Pede ao Obsidian para apagar uma nota .md que JÁ EXISTE. Só use quando a usuária pedir explicitamente " +
-      "para apagar AQUELA nota (confirme o título com ela se houver dúvida). Antes, use 'ler' na nota. O plugin só " +
-      "apaga se a nota não tiver mudado desde a leitura, guarda uma cópia em '05 - Sistema/Backups/' e manda o " +
-      "arquivo para a lixeira (dá para recuperar).",
+      "Marca como feita/reabre, ou muda prazo, data, prioridade e status de uma tarefa que JÁ EXISTE — nunca cria " +
+      "outra. Serve para notas de tarefa (tipo: tarefa) e também para contas/lançamentos (tipo: lancamento; " +
+      "concluida=true vira status 'pago'). Para um item de checklist dentro de uma nota ('- [ ] ...'), passe " +
+      "'item' com um trecho do texto do item. Ex.: 'já paguei as funcionárias' → 'buscar' a tarefa/conta, depois " +
+      "atualizar_tarefa {caminho, concluida: true}. Se houver mais de uma candidata, pergunte qual antes.",
     inputSchema: {
       type: "object",
       properties: {
-        caminho: { type: "string", maxLength: 300, description: "Caminho da nota existente (campo 'caminho' de buscar/ler)" },
+        caminho: { type: "string", maxLength: 300, description: "Caminho da nota (campo 'caminho' de buscar/ler)" },
+        versao: { type: "string", maxLength: 64, description: "Campo 'versao' devolvido por 'ler' (opcional)" },
+        item: { type: "string", maxLength: 300, description: "Só para checklist: trecho do texto do item '- [ ]' a marcar/desmarcar" },
+        concluida: { type: "boolean", description: "true = feita/paga; false = reabrir" },
+        status: { type: "string", maxLength: 40, description: "Ex.: pendente, em andamento, feita, cancelada, pago" },
+        prazo: { type: ["string", "null"], description: "AAAA-MM-DD (null remove)" },
+        data: { type: ["string", "null"], description: "AAAA-MM-DD (null remove)" },
+        prioridade: { type: ["string", "null"], enum: ["alta", "normal", "baixa", null] },
       },
       required: ["caminho"],
       additionalProperties: false,
     },
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: "mover_nota",
+    title: "Mover nota no Obsidian",
+    description:
+      "Move (ou renomeia) uma nota .md existente para outra pasta/nome. O Obsidian atualiza os links internos " +
+      "([[...]]) que apontam para ela quando a opção 'Atualizar links internos automaticamente' está ligada. " +
+      "Nunca sobrescreve: se o destino já existir, nada acontece. 'destino' pode ser uma pasta terminando em '/' " +
+      "(mantém o nome) ou o caminho completo com .md.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        caminho: { type: "string", maxLength: 300, description: "Caminho atual da nota" },
+        destino: { type: "string", maxLength: 300, description: "Nova pasta ('04 - Projetos/Afiloop/') ou novo caminho completo (.md)" },
+        versao: { type: "string", maxLength: 64, description: "Campo 'versao' devolvido por 'ler' (opcional)" },
+      },
+      required: ["caminho", "destino"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: "excluir_nota",
+    title: "Excluir nota (vai para a lixeira)",
+    description:
+      "Exclui uma nota .md existente em DUAS etapas. 1) Chame sem 'confirmacao': nada é apagado; você recebe um " +
+      "código. 2) PERGUNTE à usuária, citando o título e o caminho da nota, se pode excluir. Só se ela disser " +
+      "claramente que sim, chame de novo com 'confirmacao' = código. Nunca confirme por conta própria. " +
+      "A nota vai para a lixeira e fica uma cópia em '05 - Sistema/Backups/' (dá para recuperar).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        caminho: { type: "string", maxLength: 300, description: "Caminho da nota existente (campo 'caminho' de buscar/ler)" },
+        versao: { type: "string", maxLength: 64, description: "Campo 'versao' devolvido por 'ler' (opcional)" },
+        confirmacao: { type: "string", maxLength: 6, description: "Código da 1ª etapa, só depois do 'sim' da usuária" },
+      },
+      required: ["caminho"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+  },
+  {
+    name: "ver_alteracoes",
+    title: "Ver alterações pedidas",
+    description:
+      "Mostra as últimas alterações pedidas ao Obsidian (criar, editar, tarefa, mover, excluir) e o resultado de " +
+      "cada uma: pendente (o computador principal ainda não aplicou), aplicada ou recusada (e por quê). Não mostra " +
+      "conteúdo das notas. Use para confirmar se uma alteração já foi feita.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        caminho: { type: "string", maxLength: 300, description: "Filtra por uma nota (opcional)" },
+        limite: { type: "integer", minimum: 1, maximum: 50, default: 10 },
+      },
+      additionalProperties: false,
+    },
+    annotations: READ_ONLY,
   },
   // Compatibilidade com o formato "search/fetch" usado pelo ChatGPT.
   {
@@ -271,9 +356,12 @@ async function ler(auth: Auth, rawId: string) {
   if (!UUID_RE.test(id)) throw new ToolError("id inválido");
   if (tipo !== "memoria") {
     const { data, error } = await auth.db.from("notas")
-      .select("id, caminho, titulo, conteudo, propriedades, modificado_em").eq("id", id).maybeSingle();
+      .select("id, caminho, titulo, conteudo, propriedades, modificado_em, hash").eq("id", id).maybeSingle();
     if (error) throw dbErr(error);
-    if (data) return { ...data, id: `nota:${data.id}`, tipo: "nota" };
+    if (data) {
+      const { hash, ...resto } = data;
+      return { ...resto, id: `nota:${data.id}`, tipo: "nota", versao: hash };
+    }
     if (tipo === "nota") throw new ToolError("Nota não encontrada");
   }
   const { data, error } = await auth.db.from("memorias")
@@ -289,6 +377,128 @@ function caminhoSeguro(c: string): boolean {
   if (/^\.obsidian\/snippets\/[^/]+\.css$/.test(c)) return true;
   return /\.(md|base)$/.test(c) && !/(^|\/)\./.test(c);
 }
+
+// ---------- edição de notas existentes ----------
+// Pastas/notas que nenhuma IA altera, move ou exclui (configuração do plugin, histórico, modelos, backups).
+const PASTAS_PROTEGIDAS = ["05 - Sistema/Backups/", "05 - Sistema/Modelos/"];
+const NOTAS_PROTEGIDAS = [
+  "05 - Sistema/⚙️ Configuração do Segundo Cérebro.md",
+  "05 - Sistema/⚙️ Resultado da configuração.md",
+  "05 - Sistema/📜 Histórico de alterações da IA.md",
+];
+const ACOES_DE_EDICAO = ["editar", "apagar", "tarefa", "mover"];
+const ORIGENS: Record<string, string> = {
+  "944323a9-269c-4468-bdf0-01ea7e4b9613": "ChatGPT",
+  "94c90271-9a50-4a65-b4d4-b345fa8043f5": "Claude",
+};
+const nomeOrigem = (o: unknown) => {
+  const s = String(o ?? "");
+  return ORIGENS[s] ?? (s.startsWith("claude-code") ? "Claude Code" : s.startsWith("teste") ? "teste" : "outro app");
+};
+
+function caminhoNota(v: unknown): string {
+  const c = (str(v, 300) ?? "").trim().replace(/^\/+/, "");
+  if (!caminhoSeguro(c) || !c.endsWith(".md")) {
+    throw new ToolError("Caminho inválido. Use o campo 'caminho' de buscar/ler (uma nota .md dentro do Vault).");
+  }
+  if (PASTAS_PROTEGIDAS.some((p) => c.startsWith(p)) || NOTAS_PROTEGIDAS.includes(c)) {
+    throw new ToolError("Essa nota é protegida (configuração, histórico, modelos ou backups) e não pode ser alterada por aqui.");
+  }
+  return c;
+}
+
+type NotaEspelho = { titulo: string; hash: string; conteudo: string; propriedades: Record<string, unknown> };
+
+async function notaAtual(auth: Auth, caminho: string, versao?: string): Promise<NotaEspelho> {
+  const { data, error } = await auth.db.from("notas").select("titulo, hash, conteudo, propriedades").eq("caminho", caminho).maybeSingle();
+  if (error) throw dbErr(error);
+  if (!data) {
+    throw new ToolError("Nota não encontrada (o caminho está errado, ela é privada ou ainda não sincronizou). Use 'buscar' para achar o caminho certo. Nada foi criado.");
+  }
+  if (versao && versao !== data.hash) {
+    throw new ToolError("A nota mudou depois que você leu. Use 'ler' de novo e refaça a alteração. Nada foi alterado.");
+  }
+  return { ...data, propriedades: (data.propriedades ?? {}) as Record<string, unknown> } as NotaEspelho;
+}
+
+const PENDENTE_MSG = "Já existe uma alteração pendente para essa nota. Espere o Obsidian aplicar (veja 'ver_alteracoes') e tente de novo.";
+
+async function semPendente(auth: Auth, ...caminhos: string[]) {
+  for (const c of caminhos) {
+    for (const col of ["caminho", "destino"]) {
+      const { data, error } = await auth.db.from("pedidos_vault").select("id")
+        .eq(col, c).is("aplicado_em", null).in("acao", ACOES_DE_EDICAO).limit(1);
+      if (error) throw dbErr(error);
+      if (data?.length) throw new ToolError(PENDENTE_MSG);
+    }
+  }
+}
+
+async function inserirPedido(auth: Auth, row: Record<string, unknown>) {
+  const { data, error } = await auth.db.from("pedidos_vault")
+    .insert({ usuario_id: auth.userId, origem: auth.clientId ?? "mcp", conteudo: "", ...row })
+    .select("id, caminho").single();
+  if (error) {
+    if ((error as { code?: string }).code === "23505") throw new ToolError(PENDENTE_MSG);
+    throw dbErr(error);
+  }
+  return data as { id: string; caminho: string };
+}
+
+const CHAVE_RE = /^[\p{L}\p{N}_][\p{L}\p{N}_ \-]{0,59}$/u;
+function validarPropriedades(v: unknown): Record<string, unknown> | undefined {
+  if (v === undefined || v === null) return undefined;
+  if (typeof v !== "object" || Array.isArray(v)) throw new ToolError("'propriedades' precisa ser um objeto {nome: valor}.");
+  const out: Record<string, unknown> = {};
+  const entradas = Object.entries(v as Record<string, unknown>);
+  if (entradas.length === 0) return undefined;
+  if (entradas.length > 40) throw new ToolError("No máximo 40 propriedades por vez.");
+  for (const [k, val] of entradas) {
+    if (!CHAVE_RE.test(k) || k === "position") throw new ToolError(`Nome de propriedade inválido: "${k.slice(0, 60)}".`);
+    if (val === null || typeof val === "boolean") out[k] = val;
+    else if (typeof val === "number" && Number.isFinite(val)) out[k] = val;
+    else if (typeof val === "string" && val.length <= 2000) out[k] = val;
+    else if (Array.isArray(val) && val.length <= 50 && val.every((x) => typeof x === "string" && x.length <= 300)) out[k] = val;
+    else throw new ToolError(`Valor inválido para "${k}": use texto, número, sim/não, lista de textos ou null.`);
+  }
+  return out;
+}
+
+function validarTrocas(v: unknown): Array<{ de: string; para: string }> | undefined {
+  if (v === undefined || v === null) return undefined;
+  if (!Array.isArray(v) || v.length > 20) throw new ToolError("'trocar' precisa ser uma lista (até 20) de {de, para}.");
+  if (v.length === 0) return undefined;
+  return v.map((t) => {
+    const de = typeof t?.de === "string" ? t.de : "";
+    const para = typeof t?.para === "string" ? t.para : "";
+    if (!de || de.length > 5000 || para.length > 20000) throw new ToolError("Cada troca precisa de 'de' (1–5000 caracteres) e 'para'.");
+    return { de, para };
+  });
+}
+
+const contar = (texto: string, trecho: string) => texto.split(trecho).length - 1;
+
+function dataValida(v: unknown, nome: string): string | null | undefined {
+  if (v === undefined) return undefined;
+  if (v === null) return null;
+  const s = String(v).trim();
+  const d = new Date(`${s}T12:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== s) {
+    throw new ToolError(`'${nome}' precisa estar no formato AAAA-MM-DD (ex.: 2026-11-05).`);
+  }
+  return s;
+}
+
+const hojeRecife = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Recife" }).format(new Date());
+
+function codigoConfirmacao(): string {
+  const n = crypto.getRandomValues(new Uint32Array(1))[0] % 1000000;
+  return String(n).padStart(6, "0");
+}
+
+const TIPOS_TAREFA = ["tarefa", "compromisso", "lembrete"];
+const TIPOS_CONTA = ["lancamento", "conta"];
+const CHECKBOX_RE = /^\s*[-*+] \[[ xX]\] /;
 
 function text(t: string, structured?: unknown) {
   return { content: [{ type: "text", text: t }], ...(structured ? { structuredContent: structured } : {}) };
@@ -336,34 +546,152 @@ async function callTool(auth: Auth, name: string, args: Record<string, unknown>)
       return text(`Pedido registrado. O Obsidian vai criar "${data.caminho}" na próxima sincronização do computador principal (se ainda não existir).`);
     }
     case "editar_nota": {
-      const caminho = (str(args.caminho, 300) ?? "").trim().replace(/^\/+/, "");
-      const conteudo = str(args.conteudo, 200000) ?? "";
-      if (!caminhoSeguro(caminho) || !caminho.endsWith(".md") || caminho.startsWith("05 - Sistema/Backups/")) {
-        throw new ToolError("Caminho não permitido. Só notas .md existentes (fora de '05 - Sistema/Backups').");
+      const caminho = caminhoNota(args.caminho);
+      const propriedades = validarPropriedades(args.propriedades);
+      const trocar = validarTrocas(args.trocar);
+      const acrescentar = typeof args.acrescentar === "string" && args.acrescentar.trim() ? args.acrescentar.slice(0, 20000) : undefined;
+      const conteudo = typeof args.conteudo === "string" ? args.conteudo : undefined;
+      if (conteudo !== undefined && conteudo.length > 200000) throw new ToolError("conteudo grande demais (máx. 200 mil caracteres).");
+      if (conteudo !== undefined && !conteudo.trim()) throw new ToolError("conteudo vazio. Para excluir uma nota, use excluir_nota (com confirmação da usuária).");
+      if (conteudo !== undefined && (trocar || acrescentar)) throw new ToolError("Use 'conteudo' (nota inteira) OU 'trocar'/'acrescentar', não os dois.");
+      if (!propriedades && !trocar && !acrescentar && conteudo === undefined) throw new ToolError("Nada para alterar: informe propriedades, trocar, acrescentar ou conteudo.");
+      const nota = await notaAtual(auth, caminho, str(args.versao, 64));
+      for (const t of trocar ?? []) {
+        const n = contar(nota.conteudo, t.de);
+        if (n !== 1) throw new ToolError(`O trecho "${t.de.slice(0, 80)}" aparece ${n} vez(es) no texto da nota; precisa aparecer exatamente 1. Nada foi alterado.`);
       }
-      if (!conteudo.trim()) throw new ToolError("conteudo vazio: para apagar uma nota, use apagar_nota (só se a usuária pedir).");
-      const { data: nota, error: e1 } = await auth.db.from("notas").select("hash").eq("caminho", caminho).maybeSingle();
-      if (e1) throw dbErr(e1);
-      if (!nota) throw new ToolError("Nota não encontrada no espelho (ainda não sincronizou, é privada ou o caminho está errado). Use 'buscar' para achar o caminho.");
-      const { data, error } = await auth.db.from("pedidos_vault")
-        .insert({ usuario_id: auth.userId, caminho, conteudo, acao: "editar", base_hash: nota.hash, origem: auth.clientId ?? "mcp" })
-        .select("id, caminho").single();
-      if (error) throw dbErr(error);
-      return text(`Pedido de edição registrado. O Obsidian vai atualizar "${data.caminho}" na próxima sincronização (com cópia de segurança; se a nota tiver mudado desde a leitura, nada é alterado).`);
+      await semPendente(auth, caminho);
+      const dados = { ...(propriedades ? { propriedades } : {}), ...(trocar ? { trocar } : {}), ...(acrescentar ? { acrescentar } : {}) };
+      const p = await inserirPedido(auth, { caminho, acao: "editar", conteudo: conteudo ?? "", base_hash: nota.hash, dados: Object.keys(dados).length ? dados : null });
+      const partes = [
+        conteudo !== undefined ? "nota inteira reescrita" : "",
+        propriedades ? `propriedades: ${Object.entries(propriedades).map(([k, v]) => v === null ? `${k} (remover)` : `${k} = ${JSON.stringify(v)}`).join(", ")}` : "",
+        trocar ? `${trocar.length} trecho(s) trocado(s)` : "",
+        acrescentar ? "texto acrescentado no fim" : "",
+      ].filter(Boolean).join("; ");
+      return text(`Pedido de edição registrado para "${nota.titulo}" (${partes}). O Obsidian aplica em até ~2 minutos no computador principal, com cópia de segurança; se a nota mudar antes disso, nada é alterado. Confira com ver_alteracoes. pedido_id: ${p.id}`);
     }
-    case "apagar_nota": {
-      const caminho = (str(args.caminho, 300) ?? "").trim().replace(/^\/+/, "");
-      if (!caminhoSeguro(caminho) || !caminho.endsWith(".md") || caminho.startsWith("05 - Sistema/")) {
-        throw new ToolError("Caminho não permitido. Só notas .md existentes fora de '05 - Sistema'.");
+    case "atualizar_tarefa": {
+      const caminho = caminhoNota(args.caminho);
+      const nota = await notaAtual(auth, caminho, str(args.versao, 64));
+      const tipo = String(nota.propriedades.tipo ?? "");
+      const item = str(args.item, 300)?.trim();
+      const concluida = typeof args.concluida === "boolean" ? args.concluida : undefined;
+      let dados: Record<string, unknown>;
+      let resumo: string;
+      if (item) {
+        if (concluida === undefined) throw new ToolError("Para um item de checklist, informe concluida: true (marcar) ou false (desmarcar).");
+        if (["status", "prazo", "data", "prioridade"].some((k) => args[k] !== undefined)) {
+          throw new ToolError("Num item de checklist só dá para marcar/desmarcar. Para mudar prazo, use editar_nota.");
+        }
+        const alvo = item.toLowerCase();
+        const linhas = nota.conteudo.split("\n").filter((l) => CHECKBOX_RE.test(l) && l.toLowerCase().includes(alvo));
+        if (linhas.length !== 1) {
+          throw new ToolError(linhas.length === 0
+            ? `Nenhum item de checklist com "${item}" nessa nota. Nada foi criado.`
+            : `${linhas.length} itens de checklist têm "${item}": ${linhas.slice(0, 5).map((l) => l.trim()).join(" | ")}. Use um trecho que identifique só um.`);
+        }
+        dados = { item, concluida };
+        resumo = `item "${linhas[0].trim().replace(CHECKBOX_RE, "")}" ${concluida ? "marcado como feito" : "desmarcado"}`;
+      } else {
+        const ehConta = TIPOS_CONTA.includes(tipo);
+        if (!ehConta && !TIPOS_TAREFA.includes(tipo) && !("status" in nota.propriedades) && !("feita" in nota.propriedades)) {
+          throw new ToolError(`Essa nota não é uma tarefa (tipo: ${tipo || "sem tipo"}). Para um checklist dentro dela, passe 'item'; para outras mudanças, use editar_nota.`);
+        }
+        const patch: Record<string, unknown> = {};
+        const hoje = hojeRecife();
+        if (concluida === true) Object.assign(patch, ehConta ? { status: "pago", pago_em: hoje } : { status: "feita", feita: true, concluida_em: hoje });
+        if (concluida === false) Object.assign(patch, ehConta ? { status: "pendente", pago_em: null } : { status: "pendente", feita: false, concluida_em: null });
+        const status = str(args.status, 40)?.trim();
+        if (status) patch.status = status;
+        const prazo = dataValida(args.prazo, "prazo");
+        const data = dataValida(args.data, "data");
+        if (prazo !== undefined) patch.prazo = prazo;
+        if (data !== undefined) patch.data = data;
+        if (args.prioridade !== undefined) {
+          if (args.prioridade !== null && !["alta", "normal", "baixa"].includes(String(args.prioridade))) throw new ToolError("prioridade: alta, normal ou baixa.");
+          patch.prioridade = args.prioridade;
+        }
+        if (!Object.keys(patch).length) throw new ToolError("Nada para alterar: informe concluida, status, prazo, data ou prioridade.");
+        dados = { propriedades: patch };
+        resumo = Object.entries(patch).map(([k, v]) => v === null ? `${k} removido` : `${k} = ${JSON.stringify(v)}`).join(", ");
       }
-      const { data: nota, error: e1 } = await auth.db.from("notas").select("hash").eq("caminho", caminho).maybeSingle();
+      await semPendente(auth, caminho);
+      const p = await inserirPedido(auth, { caminho, acao: "tarefa", base_hash: nota.hash, dados });
+      return text(`Pedido registrado para "${nota.titulo}": ${resumo}. Nenhuma tarefa nova foi criada. O Obsidian aplica em até ~2 minutos (com cópia de segurança). pedido_id: ${p.id}`);
+    }
+    case "mover_nota": {
+      const caminho = caminhoNota(args.caminho);
+      let destino = (str(args.destino, 300) ?? "").trim().replace(/^\/+/, "");
+      if (!destino) throw new ToolError("Informe o destino (pasta terminando em '/' ou caminho completo .md).");
+      const nome = caminho.split("/").pop()!;
+      if (destino.endsWith("/")) destino += nome;
+      else if (!destino.endsWith(".md")) destino += "/" + nome;
+      destino = caminhoNota(destino);
+      if (destino === caminho) throw new ToolError("O destino é igual ao caminho atual.");
+      const nota = await notaAtual(auth, caminho, str(args.versao, 64));
+      const { data: existe, error: e1 } = await auth.db.from("notas").select("id").eq("caminho", destino).maybeSingle();
       if (e1) throw dbErr(e1);
-      if (!nota) throw new ToolError("Nota não encontrada no espelho (ainda não sincronizou, é privada ou o caminho está errado). Use 'buscar' para achar o caminho.");
-      const { data, error } = await auth.db.from("pedidos_vault")
-        .insert({ usuario_id: auth.userId, caminho, conteudo: "", acao: "apagar", base_hash: nota.hash, origem: auth.clientId ?? "mcp" })
-        .select("id, caminho").single();
-      if (error) throw dbErr(error);
-      return text(`Pedido para apagar registrado. Na próxima sincronização o Obsidian guarda uma cópia em '05 - Sistema/Backups/' e manda "${data.caminho}" para a lixeira (se a nota tiver mudado desde a leitura, nada é apagado).`);
+      if (existe) throw new ToolError(`Já existe uma nota em "${destino}". Nada foi movido.`);
+      await semPendente(auth, caminho, destino);
+      const p = await inserirPedido(auth, { caminho, destino, acao: "mover", base_hash: nota.hash });
+      return text(`Pedido registrado: mover "${nota.titulo}" de "${caminho}" para "${destino}". O Obsidian aplica em até ~2 minutos e atualiza os links internos (se a opção estiver ligada). pedido_id: ${p.id}`);
+    }
+    case "apagar_nota": // nome antigo, mantido por compatibilidade: agora também exige confirmação
+    case "excluir_nota": {
+      const caminho = caminhoNota(args.caminho);
+      const nota = await notaAtual(auth, caminho, str(args.versao, 64));
+      const conf = str(args.confirmacao, 6)?.trim();
+      if (!conf) {
+        await semPendente(auth, caminho);
+        const codigo = codigoConfirmacao();
+        const { error } = await auth.db.from("confirmacoes_vault").insert({ usuario_id: auth.userId, caminho, base_hash: nota.hash, codigo });
+        if (error) throw dbErr(error);
+        return text(
+          `NADA FOI EXCLUÍDO AINDA. Pergunte à usuária, com estas palavras ou parecidas: "Posso mover a nota '${nota.titulo}' ` +
+          `(${caminho}) para a lixeira? Fica uma cópia de segurança." Só se ela responder que SIM, chame excluir_nota de novo com ` +
+          `caminho="${caminho}" e confirmacao="${codigo}". O código vale 15 minutos e uma única vez. Não confirme sem o sim dela.`,
+        );
+      }
+      if (!/^\d{6}$/.test(conf)) throw new ToolError("Código de confirmação inválido.");
+      const { data: c, error: e2 } = await auth.db.from("confirmacoes_vault").select("id, base_hash")
+        .eq("caminho", caminho).eq("codigo", conf).is("usado_em", null).gt("expira_em", new Date().toISOString())
+        .order("criado_em", { ascending: false }).limit(1).maybeSingle();
+      if (e2) throw dbErr(e2);
+      if (!c) throw new ToolError("Código inválido, já usado ou expirado. Comece de novo (sem 'confirmacao') e pergunte à usuária. Nada foi excluído.");
+      if (c.base_hash !== nota.hash) throw new ToolError("A nota mudou depois do pedido de confirmação. Comece de novo e pergunte à usuária. Nada foi excluído.");
+      const { data: usado, error: e3 } = await auth.db.from("confirmacoes_vault").update({ usado_em: new Date().toISOString() })
+        .eq("id", c.id).is("usado_em", null).select("id");
+      if (e3) throw dbErr(e3);
+      if (!usado?.length) throw new ToolError("Esse código já foi usado. Nada foi excluído.");
+      await semPendente(auth, caminho);
+      const p = await inserirPedido(auth, { caminho, acao: "apagar", base_hash: nota.hash });
+      return text(`Exclusão confirmada e registrada para "${nota.titulo}". Em até ~2 minutos o Obsidian guarda uma cópia em '05 - Sistema/Backups/' e manda a nota para a lixeira (dá para recuperar). pedido_id: ${p.id}`);
+    }
+    case "ver_alteracoes": {
+      const limite = Math.min(Math.max(Number(args.limite ?? 10) || 10, 1), 50);
+      const filtro = str(args.caminho, 300)?.trim().replace(/^\/+/, "");
+      const campos = "id, acao, caminho, destino, origem, criado_em, aplicado_em, resultado";
+      const consultas = filtro
+        ? ["caminho", "destino"].map((col) => auth.db.from("pedidos_vault").select(campos).eq(col, filtro).order("criado_em", { ascending: false }).limit(limite))
+        : [auth.db.from("pedidos_vault").select(campos).order("criado_em", { ascending: false }).limit(limite)];
+      const linhas: Array<Record<string, unknown>> = [];
+      for (const q of consultas) {
+        const { data, error } = await q;
+        if (error) throw dbErr(error);
+        for (const r of data ?? []) if (!linhas.some((x) => x.id === r.id)) linhas.push(r);
+      }
+      linhas.sort((a, b) => String(b.criado_em).localeCompare(String(a.criado_em)));
+      const alteracoes = linhas.slice(0, limite).map((r) => {
+        const res = String(r.resultado ?? "");
+        return {
+          pedido_id: r.id, acao: r.acao, caminho: r.caminho, ...(r.destino ? { destino: r.destino } : {}),
+          pedido_por: nomeOrigem(r.origem), pedido_em: r.criado_em,
+          situacao: !r.aplicado_em ? "pendente (o computador principal ainda não aplicou)" : /^(recusado|erro)/.test(res) ? "recusada" : "aplicada",
+          ...(r.aplicado_em ? { aplicado_em: r.aplicado_em, resultado: res } : {}),
+        };
+      });
+      return text(alteracoes.length ? JSON.stringify(alteracoes, null, 2) : "Nenhuma alteração encontrada.", { alteracoes });
     }
     case "search": {
       const rows = await buscar(auth, str(args.query, 500) ?? "", 10);
@@ -373,7 +701,9 @@ async function callTool(auth: Auth, name: string, args: Record<string, unknown>)
       const m = await ler(auth, String(args.id ?? "")) as Record<string, unknown>;
       return text(JSON.stringify({
         id: m.id, title: m.titulo, text: m.conteudo, url: itemUrl(String(m.id)),
-        metadata: m.propriedades ?? { categoria: m.categoria, fonte: m.fonte },
+        metadata: m.tipo === "nota"
+          ? { ...(m.propriedades as Record<string, unknown> ?? {}), caminho: m.caminho, versao: m.versao }
+          : { categoria: m.categoria, fonte: m.fonte },
       }));
     }
     default:
@@ -407,7 +737,14 @@ async function handleRpc(auth: Auth, msg: RpcReq) {
             "Este é o Segundo Cérebro pessoal da usuária (espelho do Obsidian dela). Para perguntas " +
             "sobre a vida, pessoas, casa, família, trabalho, documentos ou ideias dela, pesquise aqui " +
             "com 'buscar' (e 'datas' para prazos) " +
-            "antes de responder, e cite o título da nota usada.",
+            "antes de responder, e cite o título da nota usada. " +
+            "Para MUDAR algo que já existe, nunca crie nota nova: 'buscar' → 'ler' → editar_nota (propriedades/trocar/" +
+            "acrescentar), atualizar_tarefa (feita, prazo, prioridade), mover_nota ou excluir_nota. Datas em AAAA-MM-DD. " +
+            "excluir_nota sempre exige perguntar à usuária e receber um 'sim' claro antes da 2ª chamada. " +
+            "As mudanças são aplicadas pelo Obsidian do computador principal em até ~2 minutos; confira com 'ver_alteracoes'. " +
+            "Projeto Afiloop (moda, afiliados Shein/Shopee): notas em '04 - Projetos/Afiloop/' (posts, peças, looks, " +
+            "grifes); leia a nota '🚀 Afiloop' antes de criar ou mudar posts e siga as regras dela: não inventar preço " +
+            "nem característica, comparativos só de estética, nada publica sem aprovação da usuária.",
         });
         break;
       }

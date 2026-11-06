@@ -7,8 +7,23 @@ import { project, sql, keys, PLACEHOLDER } from "./sb.mjs";
 const p = await project();
 console.log("Projeto:", p.name, p.ref);
 
-for (const f of ["20261104000001_busca_memorias.sql", "20261104000002_notas_obsidian.sql", "20261104000003_pedidos_vault.sql", "20261104000004_pedidos_substituir.sql", "20261105000005_pedidos_editar.sql", "20261106000006_pedidos_apagar.sql"]) {
-  await sql(p.ref, readFileSync(new URL(`../supabase/migrations/${f}`, import.meta.url), "utf8"));
+// Cada migração roda UMA vez: as já aplicadas ficam registradas em public.migracoes_cerebro
+// (tabela só de controle, com RLS ligado e sem políticas: invisível para os apps).
+const MIGRACOES = ["20261104000001_busca_memorias.sql", "20261104000002_notas_obsidian.sql", "20261104000003_pedidos_vault.sql",
+  "20261104000004_pedidos_substituir.sql", "20261105000005_pedidos_editar.sql", "20261106000006_pedidos_apagar.sql",
+  "20261106000007_edicao_completa.sql"];
+// Já estavam aplicadas em produção antes de existir o registro.
+const JA_APLICADAS = MIGRACOES.slice(0, 6);
+await sql(p.ref, `create table if not exists public.migracoes_cerebro (nome text primary key, aplicado_em timestamptz not null default now());
+  alter table public.migracoes_cerebro enable row level security;
+  revoke all on public.migracoes_cerebro from anon, authenticated;
+  insert into public.migracoes_cerebro (nome) select unnest(array[${JA_APLICADAS.map((m) => `'${m}'`).join(",")}])
+    where not exists (select 1 from public.migracoes_cerebro) on conflict do nothing;`);
+const feitas = new Set((await sql(p.ref, "select nome from public.migracoes_cerebro", true)).map((r) => r.nome));
+for (const f of MIGRACOES) {
+  if (feitas.has(f)) { console.log("· já aplicada:", f); continue; }
+  const corpo = readFileSync(new URL(`../supabase/migrations/${f}`, import.meta.url), "utf8");
+  await sql(p.ref, `begin;\n${corpo}\ninsert into public.migracoes_cerebro (nome) values ('${f}');\ncommit;`);
   console.log("✔ SQL aplicado:", f, "(sem apagar nada; RLS preservado)");
 }
 
