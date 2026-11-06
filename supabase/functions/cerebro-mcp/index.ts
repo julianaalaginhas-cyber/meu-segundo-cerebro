@@ -306,8 +306,9 @@ const TOOLS = [
     title: "Ver alterações pedidas",
     description:
       "Mostra as últimas alterações pedidas ao Obsidian (criar, editar, tarefa, mover, excluir) e o resultado de " +
-      "cada uma: pendente (o computador principal ainda não aplicou), aplicada ou recusada (e por quê). Não mostra " +
-      "conteúdo das notas. Use para confirmar se uma alteração já foi feita.",
+      "cada uma: pendente (o computador principal ainda não aplicou), aplicada ou recusada (e por quê), e também os " +
+      "pedidos que o servidor recusou antes de entrar na fila, com o motivo. Não mostra conteúdo das notas. Use para " +
+      "confirmar se uma alteração já foi feita e, se algo falhar, diga à usuária o motivo exato (não diga só 'bloqueado').",
     inputSchema: {
       type: "object",
       properties: {
@@ -691,7 +692,13 @@ async function callTool(auth: Auth, name: string, args: Record<string, unknown>)
           ...(r.aplicado_em ? { aplicado_em: r.aplicado_em, resultado: res } : {}),
         };
       });
-      return text(alteracoes.length ? JSON.stringify(alteracoes, null, 2) : "Nenhuma alteração encontrada.", { alteracoes });
+      let rq = auth.db.from("recusas_mcp").select("ferramenta, caminho, motivo, origem, criado_em").order("criado_em", { ascending: false }).limit(limite);
+      if (filtro) rq = rq.eq("caminho", filtro);
+      const { data: rec, error: er } = await rq;
+      if (er) throw dbErr(er);
+      const recusadas_pelo_servidor = (rec ?? []).map((r) => ({ ferramenta: r.ferramenta, caminho: r.caminho, motivo: r.motivo, pedido_por: nomeOrigem(r.origem), em: r.criado_em }));
+      const saida = { alteracoes, recusadas_pelo_servidor };
+      return text(alteracoes.length || recusadas_pelo_servidor.length ? JSON.stringify(saida, null, 2) : "Nenhuma alteração encontrada.", saida);
     }
     case "search": {
       const rows = await buscar(auth, str(args.query, 500) ?? "", 10);
@@ -709,6 +716,16 @@ async function callTool(auth: Auth, name: string, args: Record<string, unknown>)
     default:
       return null;
   }
+}
+
+// Guarda o motivo de uma alteração recusada (sem conteúdo da nota) para aparecer em ver_alteracoes.
+const EDICAO_TOOLS = ["editar_nota", "atualizar_tarefa", "mover_nota", "excluir_nota", "apagar_nota"];
+async function registrarRecusa(auth: Auth, ferramenta: string, args: Record<string, unknown> | undefined, e: unknown) {
+  try {
+    const motivo = e instanceof ToolError ? e.message : "erro interno do servidor";
+    const caminho = typeof args?.caminho === "string" ? args.caminho.slice(0, 300) : null;
+    await auth.db.from("recusas_mcp").insert({ usuario_id: auth.userId, ferramenta, caminho, motivo: motivo.slice(0, 400), origem: auth.clientId ?? "mcp" });
+  } catch { /* o registro nunca pode atrapalhar a resposta */ }
 }
 
 // ---------- JSON-RPC / MCP ----------
@@ -762,6 +779,7 @@ async function handleRpc(auth: Auth, msg: RpcReq) {
           if (!res) status = "unknown_tool";
         } catch (e) {
           status = e instanceof ToolError ? "tool_error" : "internal_error";
+          if (EDICAO_TOOLS.includes(tool)) await registrarRecusa(auth, tool, msg.params?.arguments, e);
           const msgTxt = e instanceof ToolError ? e.message : "Erro interno ao consultar o Segundo Cérebro.";
           if (!(e instanceof ToolError)) log({ level: "error", tool, err: String((e as Error).message).slice(0, 80) });
           out = rpcResult(msg.id, { content: [{ type: "text", text: msgTxt }], isError: true });

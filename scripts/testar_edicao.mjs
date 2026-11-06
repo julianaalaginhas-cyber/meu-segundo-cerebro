@@ -179,8 +179,12 @@ try {
   console.log("\n6) ver_alteracoes e compatibilidade");
   r = await tool(A.token, "ver_alteracoes", { limite: 20 });
   check("histórico lista as alterações sem conteúdo", !r.erro && /"acao": "mover"/.test(r.texto) && !/Garantia até/.test(r.texto), r.texto);
+  check("recusas do servidor aparecem com o motivo", /recusadas_pelo_servidor/.test(r.texto) && /aparece 0 vez/.test(r.texto), r.texto.slice(-400));
   r = await tool(B.token, "ver_alteracoes", {});
-  check("B não vê o histórico da A", !/fictícia/.test(r.texto), r.texto);
+  const vistoB = JSON.parse(r.texto.startsWith("{") ? r.texto : '{"alteracoes":[],"recusadas_pelo_servidor":[]}');
+  console.log("    o que B vê:", JSON.stringify(vistoB).slice(0, 600));
+  check("B não vê nenhuma alteração da A", vistoB.alteracoes.length === 0, r.texto);
+  check("B só vê as próprias tentativas recusadas", vistoB.recusadas_pelo_servidor.every((x) => /não encontrada|inválido/i.test(x.motivo)), r.texto);
   r = await tool(A.token, "criar_nota", { caminho: "00 - Entrada/🧪 Nova fictícia.md", conteudo: "oi" });
   check("criar_nota continua funcionando", !r.erro && /Pedido registrado/.test(r.texto), r.texto);
   r = await tool(A.token, "buscar", { consulta: "Máquina de lavar fictícia" });

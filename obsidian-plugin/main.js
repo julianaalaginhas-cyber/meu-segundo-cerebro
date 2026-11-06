@@ -104,7 +104,11 @@ module.exports = class PonteSegundoCerebro extends Plugin {
       headers: { apikey: this.settings.supabaseKey, "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (r.status >= 300) throw new Error(r.json?.error_description || r.json?.msg || `Erro ${r.status}`);
+    if (r.status >= 300) {
+      const e = new Error(r.json?.error_description || r.json?.msg || `Erro ${r.status}`);
+      e.status = r.status; e.code = r.json?.error_code || r.json?.error;
+      throw e;
+    }
     return r.json;
   }
   guardarSessao(d) {
@@ -119,16 +123,31 @@ module.exports = class PonteSegundoCerebro extends Plugin {
     this.setStatus("🧠 desconectado");
     new Notice("Segundo Cérebro: este aparelho foi desconectado.");
   }
+  // Renova o acesso uma vez por hora. Só pede login de novo quando o Supabase diz que a sessão
+  // acabou de verdade (400/401). Falha de internet (ex.: notebook acordando) não desloga:
+  // tenta de novo no próximo ciclo. Uma renovação por vez, para não gastar o mesmo token duas vezes.
   async token() {
     const s = this.sessao;
     if (!s) return null;
     if (Date.now() < s.expira - 60000) return s.access_token;
+    if (!this.renovando) this.renovando = this.renovar(s).finally(() => { this.renovando = null; });
+    return this.renovando;
+  }
+  async renovar(s) {
     try {
       this.guardarSessao(await this.auth("/token?grant_type=refresh_token", { refresh_token: s.refresh_token }));
       return this.sessao.access_token;
     } catch (e) {
-      this.sessao = null;
-      new Notice("Segundo Cérebro: faça login de novo nas configurações do plugin.");
+      const atual = this.sessao; // outro aparelho/janela pode ter renovado e salvo uma sessão nova
+      if (atual && atual.refresh_token !== s.refresh_token && Date.now() < atual.expira - 60000) return atual.access_token;
+      if (e.status === 400 || e.status === 401 || e.status === 403) {
+        this.sessao = null;
+        this.setStatus("🧠 desconectado");
+        new Notice("Segundo Cérebro: a sessão expirou. Faça login de novo nas configurações do plugin.");
+      } else {
+        this.setStatus("🧠 ⚠︎ sem internet");
+        console.warn("[Segundo Cérebro] não deu para renovar o acesso agora; tento de novo depois:", e.message);
+      }
       return null;
     }
   }

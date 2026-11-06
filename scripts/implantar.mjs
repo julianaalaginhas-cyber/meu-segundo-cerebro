@@ -11,7 +11,7 @@ console.log("Projeto:", p.name, p.ref);
 // (tabela só de controle, com RLS ligado e sem políticas: invisível para os apps).
 const MIGRACOES = ["20261104000001_busca_memorias.sql", "20261104000002_notas_obsidian.sql", "20261104000003_pedidos_vault.sql",
   "20261104000004_pedidos_substituir.sql", "20261105000005_pedidos_editar.sql", "20261106000006_pedidos_apagar.sql",
-  "20261106000007_edicao_completa.sql"];
+  "20261106000007_edicao_completa.sql", "20261106000008_recusas_mcp.sql"];
 // Já estavam aplicadas em produção antes de existir o registro.
 const JA_APLICADAS = MIGRACOES.slice(0, 6);
 await sql(p.ref, `create table if not exists public.migracoes_cerebro (nome text primary key, aplicado_em timestamptz not null default now());
