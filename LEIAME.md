@@ -22,7 +22,7 @@ Obsidian (Windows/iPhone)  ──plugin "Ponte"──▶  Supabase (notas + memo
 | Página de consentimento | `docs/` (GitHub Pages) | Tela "Permitir acesso?" exigida pelo OAuth Server do Supabase |
 
 ## Ferramentas MCP
-`buscar`, `ler`, `datas`, `salvar_memoria`, `criar_nota`, `editar_nota` (com backup e trava de versão), e `search`/`fetch` (formato esperado pelo ChatGPT).
+`buscar`, `ler`, `datas`, `salvar_memoria`, `criar_nota`, `editar_nota` e `apagar_nota` (com backup, trava de versão e lixeira), e `search`/`fetch` (formato esperado pelo ChatGPT).
 
 ## Comandos (precisam de `SUPABASE_ACCESS_TOKEN` no ambiente)
 ```

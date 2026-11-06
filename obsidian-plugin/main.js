@@ -331,6 +331,30 @@ module.exports = class PonteSegundoCerebro extends Plugin {
     return `editado (backup em ${destino})`;
   }
 
+  // Apaga uma nota .md existente a pedido da usuária (via Claude/ChatGPT).
+  // Mesma trava do editar (hash da versão lida), cópia em Backups e arquivo para a lixeira.
+  async apagarComBackup(caminho, baseHash) {
+    if (!caminho.endsWith(".md") || caminho.startsWith(".obsidian/") || caminho.startsWith("05 - Sistema/")) {
+      return "recusado: só notas .md fora de '05 - Sistema' podem ser apagadas";
+    }
+    const f = this.app.vault.getAbstractFileByPath(caminho);
+    if (!(f instanceof TFile)) return "recusado: a nota não existe";
+    const nota = await this.montarNota(f);
+    if (!nota) return "recusado: nota privada";
+    if (!baseHash || nota.hash !== baseHash) return "recusado: a nota mudou depois que a IA leu (nada foi apagado)";
+    const atual = await this.app.vault.read(f);
+    const carimbo = new Date().toISOString().slice(0, 16).replace("T", " ").replace(":", "h");
+    const pastaBackup = `05 - Sistema/Backups/${carimbo}`;
+    await this.garantirPasta(pastaBackup);
+    const nomeBackup = caminho.replace(/\//g, " ∕ ");
+    let destino = `${pastaBackup}/${nomeBackup}`;
+    for (let i = 2; await this.app.vault.adapter.exists(destino); i++) destino = `${pastaBackup}/${i} - ${nomeBackup}`;
+    await this.app.vault.create(destino, atual);
+    if (this.app.fileManager.trashFile) await this.app.fileManager.trashFile(f);
+    else await this.app.vault.trash(f, true);
+    return `apagado (foi para a lixeira; cópia em ${destino})`;
+  }
+
   // ---------- configuração do Obsidian (favoritos, página inicial, captura, diário) ----------
   // Lê o bloco JSON da nota de configuração. Aplica uma vez por versão, só no dispositivo
   // principal (ou quando a usuária roda o comando). Sempre guarda cópia dos arquivos antes.
@@ -506,6 +530,9 @@ module.exports = class PonteSegundoCerebro extends Plugin {
         } else if (p.acao === "editar") {
           resultado = await this.editarComBackup(caminho, p.conteudo, p.base_hash);
           if (resultado.startsWith("editado (backup")) n++;
+        } else if (p.acao === "apagar") {
+          resultado = await this.apagarComBackup(caminho, p.base_hash);
+          if (resultado.startsWith("apagado")) n++;
         } else if (caminho.startsWith(".obsidian/")) {
           const real = `${this.app.vault.configDir}/${caminho.slice(".obsidian/".length)}`;
           const dir = real.split("/").slice(0, -1).join("/");
@@ -529,7 +556,7 @@ module.exports = class PonteSegundoCerebro extends Plugin {
       await this.rest("PATCH", `pedidos_vault?id=eq.${p.id}`, { aplicado_em: new Date().toISOString(), resultado },
         { Prefer: "return=minimal" });
     }
-    if (n) new Notice(`Segundo Cérebro: ${n} arquivo(s) criado(s) ou atualizado(s) pelo Claude.`);
+    if (n) new Notice(`Segundo Cérebro: ${n} arquivo(s) criado(s), atualizado(s) ou apagado(s) pelo Claude.`);
     return n;
   }
 

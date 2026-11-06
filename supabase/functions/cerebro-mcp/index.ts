@@ -215,6 +215,24 @@ const TOOLS = [
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
+  {
+    name: "apagar_nota",
+    title: "Apagar nota no Obsidian",
+    description:
+      "Pede ao Obsidian para apagar uma nota .md que JÁ EXISTE. Só use quando a usuária pedir explicitamente " +
+      "para apagar AQUELA nota (confirme o título com ela se houver dúvida). Antes, use 'ler' na nota. O plugin só " +
+      "apaga se a nota não tiver mudado desde a leitura, guarda uma cópia em '05 - Sistema/Backups/' e manda o " +
+      "arquivo para a lixeira (dá para recuperar).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        caminho: { type: "string", maxLength: 300, description: "Caminho da nota existente (campo 'caminho' de buscar/ler)" },
+      },
+      required: ["caminho"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+  },
   // Compatibilidade com o formato "search/fetch" usado pelo ChatGPT.
   {
     name: "search",
@@ -323,7 +341,7 @@ async function callTool(auth: Auth, name: string, args: Record<string, unknown>)
       if (!caminhoSeguro(caminho) || !caminho.endsWith(".md") || caminho.startsWith("05 - Sistema/Backups/")) {
         throw new ToolError("Caminho não permitido. Só notas .md existentes (fora de '05 - Sistema/Backups').");
       }
-      if (!conteudo.trim()) throw new ToolError("conteudo vazio: para apagar uma nota, peça para a usuária apagar no Obsidian.");
+      if (!conteudo.trim()) throw new ToolError("conteudo vazio: para apagar uma nota, use apagar_nota (só se a usuária pedir).");
       const { data: nota, error: e1 } = await auth.db.from("notas").select("hash").eq("caminho", caminho).maybeSingle();
       if (e1) throw dbErr(e1);
       if (!nota) throw new ToolError("Nota não encontrada no espelho (ainda não sincronizou, é privada ou o caminho está errado). Use 'buscar' para achar o caminho.");
@@ -332,6 +350,20 @@ async function callTool(auth: Auth, name: string, args: Record<string, unknown>)
         .select("id, caminho").single();
       if (error) throw dbErr(error);
       return text(`Pedido de edição registrado. O Obsidian vai atualizar "${data.caminho}" na próxima sincronização (com cópia de segurança; se a nota tiver mudado desde a leitura, nada é alterado).`);
+    }
+    case "apagar_nota": {
+      const caminho = (str(args.caminho, 300) ?? "").trim().replace(/^\/+/, "");
+      if (!caminhoSeguro(caminho) || !caminho.endsWith(".md") || caminho.startsWith("05 - Sistema/")) {
+        throw new ToolError("Caminho não permitido. Só notas .md existentes fora de '05 - Sistema'.");
+      }
+      const { data: nota, error: e1 } = await auth.db.from("notas").select("hash").eq("caminho", caminho).maybeSingle();
+      if (e1) throw dbErr(e1);
+      if (!nota) throw new ToolError("Nota não encontrada no espelho (ainda não sincronizou, é privada ou o caminho está errado). Use 'buscar' para achar o caminho.");
+      const { data, error } = await auth.db.from("pedidos_vault")
+        .insert({ usuario_id: auth.userId, caminho, conteudo: "", acao: "apagar", base_hash: nota.hash, origem: auth.clientId ?? "mcp" })
+        .select("id, caminho").single();
+      if (error) throw dbErr(error);
+      return text(`Pedido para apagar registrado. Na próxima sincronização o Obsidian guarda uma cópia em '05 - Sistema/Backups/' e manda "${data.caminho}" para a lixeira (se a nota tiver mudado desde a leitura, nada é apagado).`);
     }
     case "search": {
       const rows = await buscar(auth, str(args.query, 500) ?? "", 10);
