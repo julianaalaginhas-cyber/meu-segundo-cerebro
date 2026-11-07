@@ -8,7 +8,7 @@ const [arquivo, origem = "claude-code:notas"] = process.argv.slice(2);
 if (!arquivo) throw new Error("Informe o arquivo JSON.");
 const lote = JSON.parse(readFileSync(arquivo, "utf8"));
 for (const n of lote) {
-  if (!n.caminho?.endsWith(".md") || n.caminho.includes("..") || n.caminho.startsWith("/")) throw new Error("Caminho inválido: " + n.caminho);
+  if (!/\.(md|base)$/.test(n.caminho ?? "") || n.caminho.includes("..") || n.caminho.startsWith("/")) throw new Error("Caminho inválido: " + n.caminho);
   if (n.conteudo.includes("$sc$")) throw new Error("Conteúdo com delimitador reservado: " + n.caminho);
 }
 const p = await project();

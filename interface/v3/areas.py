@@ -87,6 +87,8 @@ add(f"{P}/Conhecimento.base", base({}, {"file.name": "Nota"}, [
     e.vista("Ideias", ['tipo == "ideia"'], ["file.name", "area", "file.ctime"], ordem("file.ctime", "DESC")),
     e.vista("Receitas", ['tipo == "receita"'], ["file.name", "categoria", "tempo_preparo", "origem"], "    groupBy:\n      property: categoria\n      direction: ASC\n"),
 ]))
+# ATENÇÃO (07/11/2026): no Vault, o bloco "📖 Biblioteca" foi trocado à mão pelo bloco "🎬 Filmes, séries e livros"
+# (painel 05 - Sistema/Painéis/Filmes, séries e livros.base, notas tipo: midia). Não reenviar esta tela sem levar isso junto.
 add("03 - Conhecimento/📚 Conhecimento.md", pagina("📚 Conhecimento", "conhecimento", [
     ("📖 Biblioteca", "Conhecimento", "Livros"),
     ("🍲 Receitas", "Conhecimento", "Receitas"),

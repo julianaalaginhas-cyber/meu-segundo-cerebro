@@ -889,6 +889,10 @@ async function handleRpc(auth: Auth, msg: RpcReq) {
             "acrescentar), atualizar_tarefa (feita, prazo, prioridade), mover_nota ou excluir_nota. Datas em AAAA-MM-DD. " +
             "excluir_nota sempre exige perguntar à usuária e receber um 'sim' claro antes da 2ª chamada. " +
             "As mudanças são aplicadas pelo Obsidian do computador principal em até ~2 minutos; confira com 'ver_alteracoes'. " +
+            "Filmes, séries, documentários e livros: uma nota por título (tipo: midia) em '03 - Conhecimento/🎬 Filmes, séries e livros/Títulos/', " +
+            "com formato (Filme, Série, Documentário, Livro), status (quero assistir, assistindo, assistido, quero ler, lendo, lido, " +
+            "abandonei), estrelas (1 a 5), ano_concluido, onde, indicado_por e capa (imagem via salvar_imagem na pasta " +
+            "'03 - Conhecimento/🎬 Filmes, séries e livros/Capas', propriedade 'capa'). " +
             "Projeto Afiloop (afiliados de Shein, Shopee, Mercado Livre e outras lojas; a loja vai na propriedade 'loja'): notas em '04 - Projetos/Afiloop/' (posts, peças, looks, " +
             "grifes). Toda peça, look e post tem a propriedade 'nicho' com UM destes valores exatos: Fashion, Beauty, Casa " +
             "(casa, decoração e cozinha) ou Maternidade — sempre preencha. Fotos e vídeos de produto no Google Drive ficam em " +
