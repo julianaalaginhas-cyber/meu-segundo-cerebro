@@ -460,7 +460,13 @@ module.exports = class PonteSegundoCerebro extends Plugin {
     // Em "05 - Sistema" só pode sair um painel .base que deixou de ser usado (o servidor das IAs só aceita notas .md).
     const painel = /^05 - Sistema\/Painéis\/[^/]+\.base$/.test(caminho);
     if (caminho.startsWith("05 - Sistema/") && !painel) return "recusado: notas de '05 - Sistema' não podem ser excluídas";
-    const ok = await this.conferirNota(caminho, baseHash);
+    let ok;
+    if (painel) {  // painel .base: mesma trava de versão, sem a regra "só .md" das notas
+      const f = this.app.vault.getAbstractFileByPath(caminho);
+      const nota = f instanceof TFile ? await this.montarNota(f) : null;
+      ok = !nota ? { erro: "recusado: a nota não existe (nada foi criado)" }
+        : nota.hash !== baseHash ? { erro: "recusado: a nota mudou depois que a IA leu (nada foi alterado)" } : { f };
+    } else ok = await this.conferirNota(caminho, baseHash);
     if (ok.erro) return ok.erro.replace("nada foi alterado", "nada foi apagado");
     const backup = await this.guardarBackup(caminho, await this.app.vault.read(ok.f));
     if (this.app.fileManager.trashFile) await this.app.fileManager.trashFile(ok.f);
