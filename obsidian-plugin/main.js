@@ -457,7 +457,9 @@ module.exports = class PonteSegundoCerebro extends Plugin {
 
   // Exclui: cópia em Backups e arquivo para a lixeira (recuperável).
   async apagarComBackup(caminho, baseHash) {
-    if (caminho.startsWith("05 - Sistema/")) return "recusado: notas de '05 - Sistema' não podem ser excluídas";
+    // Em "05 - Sistema" só pode sair um painel .base que deixou de ser usado (o servidor das IAs só aceita notas .md).
+    const painel = /^05 - Sistema\/Painéis\/[^/]+\.base$/.test(caminho);
+    if (caminho.startsWith("05 - Sistema/") && !painel) return "recusado: notas de '05 - Sistema' não podem ser excluídas";
     const ok = await this.conferirNota(caminho, baseHash);
     if (ok.erro) return ok.erro.replace("nada foi alterado", "nada foi apagado");
     const backup = await this.guardarBackup(caminho, await this.app.vault.read(ok.f));
@@ -763,7 +765,7 @@ module.exports = class PonteSegundoCerebro extends Plugin {
   }
 
   // ---------- pastas que ficaram vazias depois que a IA moveu notas ----------
-  // Só considera as pastas de ORIGEM das notas movidas pela IA (lidas do histórico), e só apaga
+  // Só considera as pastas de ORIGEM das notas movidas (ou apagadas) pela IA (lidas do histórico), e só apaga
   // pasta realmente vazia. Nunca mexe nas pastas de nível 1, nas protegidas nem nas pastas
   // que a configuração manda manter (Agenda, Diário, Treinos…). Nenhum arquivo é apagado.
   async limparPastasVazias() {
@@ -772,7 +774,7 @@ module.exports = class PonteSegundoCerebro extends Plugin {
     if (!(h instanceof TFile)) return;
     const texto = await this.app.vault.cachedRead(h);
     const origens = new Set();
-    for (const m of texto.matchAll(/\*\*mover\*\* · `([^`]+)` → `[^`]+` · [^\n]*movido para/g)) {
+    for (const m of texto.matchAll(/\*\*(?:mover|apagar)\*\* · `([^`]+)`(?: → `[^`]+`)? · [^\n]*(?:movido para|apagado \()/g)) {
       const partes = m[1].split("/").slice(0, -1);
       while (partes.length >= 2) { origens.add(partes.join("/")); partes.pop(); }
     }
