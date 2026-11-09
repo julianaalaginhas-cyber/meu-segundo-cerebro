@@ -823,7 +823,7 @@ module.exports = class PonteSegundoCerebro extends Plugin {
         const tipo = String(fm.tipo || "");
         const padrao = DIAS_ALERTA[tipo];
         if (padrao === undefined && fm.alerta_dias == null) continue;
-        if (fm.alerta === false) continue;
+        if (fm.alerta === false || fm.feita === true) continue;  // desligado ou já concluído (caixinha ✓)
         if (/encerrad|revogad|substitu|feit|conclu|cancelad|cumprid|resolvid|arquivad|baixad/i.test(String(fm.status || ""))) continue;
         // processos: o próximo prazo fica em `prazo`; o resto usa `vencimento` (ou `validade`)
         const venc = dataIsoDe(tipo === "processo" ? fm.prazo : (fm.vencimento ?? fm.validade));
