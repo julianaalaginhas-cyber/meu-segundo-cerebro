@@ -91,7 +91,16 @@ module.exports = class PonteSegundoCerebro extends Plugin {
       // pedidos do Claude chegam mais rápido (a cada 2 min, só no principal)
       this.registerInterval(window.setInterval(() => this.verificarPedidos(), 120000));
       // avisos de vencimento (documentos, contratos, procurações, prazos): ao abrir e a cada 6 h
-      setTimeout(() => { this.verificarVencimentos(false); this.limparPastasVazias().catch(() => {}); }, 60000);
+      setTimeout(() => {
+        this.verificarVencimentos(false); this.limparPastasVazias().catch(() => {});
+        this.atualizarModeloDespesa().catch(() => {}); this.gerarParcelas().catch(() => {});
+      }, 60000);
+      this.registerInterval(window.setInterval(() => this.gerarParcelas().catch(() => {}), 10 * 60000));
+      // compra parcelada nova no Financeiro: divide em alguns segundos
+      this.registerEvent(this.app.metadataCache.on("changed", (f) => {
+        if (!f.path.startsWith("06 - Financeiro/")) return;
+        clearTimeout(this.tParcelas); this.tParcelas = setTimeout(() => this.gerarParcelas().catch(() => {}), 8000);
+      }));
       this.registerInterval(window.setInterval(() => this.verificarVencimentos(false), 6 * 3600000));
     });
   }
@@ -743,6 +752,7 @@ module.exports = class PonteSegundoCerebro extends Plugin {
     }
     try { await this.registrarHistorico(historico); } catch (e) { console.warn("[Segundo Cérebro] histórico:", e.message); }
     try { await this.limparPastasVazias(); } catch (e) { console.warn("[Segundo Cérebro] pastas vazias:", e.message); }
+    try { await this.gerarParcelas(); } catch (e) { console.warn("[Segundo Cérebro] parcelas:", e.message); }
     if (n) new Notice(`Segundo Cérebro: ${n} arquivo(s) criado(s), atualizado(s), movido(s) ou apagado(s) pela IA.`);
     return n;
   }
@@ -801,6 +811,65 @@ module.exports = class PonteSegundoCerebro extends Plugin {
       removidas.push(pasta);
     }
     if (removidas.length) console.log("[Segundo Cérebro] pastas vazias removidas:", removidas);
+  }
+
+  // ---------- compras parceladas ----------
+  // Lançamento com `parcelas: N` (2 a 48) e `valor` (total) ou `valor_parcela`: cria uma nota por parcela em
+  // "06 - Financeiro/Lancamentos/Parcelas", uma por mês, com `mes_fatura`. A 1ª parcela cai no mês seguinte à
+  // compra no cartão (no mesmo mês em PIX/Dinheiro), ou em `primeira_parcela: AAAA-MM`. Os centavos que sobram
+  // da divisão vão para as primeiras parcelas. Faz uma vez só por compra (marca `parcelas_geradas: true`).
+  async gerarParcelas() {
+    if (!this.principal || this.gerandoParcelas) return;
+    this.gerandoParcelas = true;
+    try {
+      const PASTA = "06 - Financeiro/Lancamentos/Parcelas";
+      const hist = [];
+      for (const f of this.app.vault.getMarkdownFiles()) {
+        if (!f.path.startsWith("06 - Financeiro/") || f.path.startsWith(PASTA + "/")) continue;
+        const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
+        if (!fm || fm.tipo !== "lancamento" || fm.parcelas_geradas === true || fm.parcela) continue;
+        const n = parseInt(fm.parcelas, 10);
+        if (!(n >= 2 && n <= 48)) continue;
+        const vp = Number(String(fm.valor_parcela ?? "").replace(",", "."));
+        const total = vp > 0 ? vp * n : Number(String(fm.valor ?? "").replace(",", "."));
+        if (!(total > 0)) continue;
+        const compra = dataIsoDe(fm.data) || isoDia(new Date());
+        const cartao = /^cart/i.test(String(fm.forma_pagamento || ""));
+        const primeiro = /^\d{4}-\d{2}$/.test(String(fm.primeira_parcela || "")) ? String(fm.primeira_parcela)
+          : somarMeses(compra.slice(0, 7), cartao ? 1 : 0);
+        const centavos = Math.round(total * 100), parte = Math.floor(centavos / n), resto = centavos - parte * n;
+        const link = `[[${f.path.replace(/\.md$/, "")}|${f.basename}]]`;
+        await this.garantirPasta(PASTA);
+        for (let k = 1; k <= n; k++) {
+          const mes = somarMeses(primeiro, k - 1);
+          const valor = (parte + (k <= resto ? 1 : 0)) / 100;
+          const nome = `${mes} - ${f.basename} (${k} de ${n})`.replace(/[\\/:*?"<>|#^[\]]/g, "-").slice(0, 150);
+          const caminho = `${PASTA}/${nome}.md`;
+          if (this.app.vault.getAbstractFileByPath(caminho)) continue;
+          const linhas = ["---", "tipo: lancamento", "natureza: despesa", `valor: ${valor}`, `parcela: "${k}/${n}"`,
+            `mes_fatura: "${mes}"`, `mes_pagamento: "${mes}"`, `data: ${compra}`];
+          if (fm.categoria) linhas.push(`categoria: ${JSON.stringify(String(fm.categoria))}`);
+          if (fm.forma_pagamento) linhas.push(`forma_pagamento: ${JSON.stringify(String(fm.forma_pagamento))}`);
+          linhas.push(`status: ${cartao ? "na fatura" : "pendente"}`, `compra: ${JSON.stringify(link)}`, "---",
+            `Parcela **${k} de ${n}** da compra ${link} — total R$ ${total.toFixed(2).replace(".", ",")}.`, "");
+          await this.app.vault.create(caminho, linhas.join("\n"));
+        }
+        await this.app.fileManager.processFrontMatter(f, (x) => { x.parcelas_geradas = true; });
+        hist.push(`- ${new Date().toLocaleString("pt-BR")} · **parcelas** · \`${f.path}\` · ${n} parcelas a partir de ${primeiro} · Ponte`);
+      }
+      if (hist.length) { await this.registrarHistorico(hist); new Notice(`💳 ${hist.length} compra(s) parcelada(s) dividida(s) pelos meses`); }
+    } finally { this.gerandoParcelas = false; }
+  }
+
+  // Atalho "💸 Despesa": modelo com forma de pagamento, categorias fixas e parcelas (uma vez, com cópia antes).
+  async atualizarModeloDespesa() {
+    if (!this.principal) return;
+    const f = this.app.vault.getAbstractFileByPath(MODELO_DESPESA);
+    if (!(f instanceof TFile)) return;
+    const atual = await this.app.vault.read(f);
+    if (atual.includes("Cartão Nubank")) return;
+    await this.guardarBackup(MODELO_DESPESA, atual);
+    await this.app.vault.modify(f, CONTEUDO_MODELO_DESPESA);
   }
 
   // ---------- avisos de vencimento ----------
@@ -868,6 +937,21 @@ const isoDia = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.get
 const diaDeIso = (s) => { const [a, m, d] = s.split("-").map(Number); return new Date(a, m - 1, d); };
 const somarDias = (iso, n) => { const d = diaDeIso(iso); d.setDate(d.getDate() + n); return isoDia(d); };
 const brData = (iso) => iso.split("-").reverse().join("/");
+const somarMeses = (am, n) => { const [a, m] = am.split("-").map(Number); const d = new Date(a, m - 1 + n, 1); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`; };
+const MODELO_DESPESA = "05 - Sistema/Modelos/Captura/Despesa.md";
+const CATEGORIAS_GASTO = "mercado,farmácia,casa,contas da casa,funcionárias,saúde,pets,filhos,transporte,alimentação fora,lazer,roupas e beleza,educação,assinaturas,trabalho,outros";
+const CONTEUDO_MODELO_DESPESA = `---
+tipo: lancamento
+natureza: despesa
+valor: {{VALUE:Valor total ex. 45.90}}
+data: {{DATE:YYYY-MM-DD}}
+categoria: {{VALUE:${CATEGORIAS_GASTO}}}
+forma_pagamento: {{VALUE:PIX/Dinheiro,Cartão XP,Cartão BTG,Cartão Nubank,Cartão Itaú,Cartão Guy}}
+parcelas: {{VALUE:Em quantas vezes? (1 = à vista)}}
+status: {{VALUE:pago,pendente}}
+vencimento:
+---
+`;
 function dataIsoDe(v) {
   if (v instanceof Date && !isNaN(v)) return isoDia(v);
   const m = String(v ?? "").match(/^(\d{4})-(\d{2})-(\d{2})/);

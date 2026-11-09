@@ -26,6 +26,8 @@ Obsidian (Windows/iPhone)  ──plugin "Ponte"──▶  Supabase (notas + memo
 - Avisos de vencimento (só no dispositivo principal, ao abrir e a cada 6 h): notas `tipo: contrato/societario/procuracao/documento/prazo/licenca/certidao` com `vencimento`/`validade` (e `tipo: processo` com `prazo`), ou com `alerta_dias`, geram UMA tarefa ⏰ em `07 - Agenda` dentro da antecedência (padrão 90/60/60/60/30/60/30 dias; processo 7).
 - Pastas de origem que ficam vazias depois de um `mover` feito pela IA (lidas do histórico) são removidas; nunca as de nível 1, as protegidas ou as da configuração. `alerta: false` desliga. Comando: "Verificar vencimentos agora".
 
+- Compras parceladas: lançamento em `06 - Financeiro/` com `parcelas: N` (2–48) e `valor` total (ou `valor_parcela`) vira N notas em `Lancamentos/Parcelas`, uma por mês (`mes_fatura`; no cartão começa no mês seguinte, ou em `primeira_parcela`), e a compra ganha `parcelas_geradas: true`. O atalho 💸 Despesa ganha forma de pagamento, categorias fixas e parcelas.
+
 ## Ferramentas MCP
 `buscar`, `ler`, `datas`, `salvar_memoria`, `criar_nota`, `editar_nota`, `atualizar_tarefa`, `mover_nota`, `excluir_nota` (2 etapas, com confirmação) , `salvar_imagem` (fotos no Vault, bucket privado) e `ver_alteracoes` — com trava de versão, backup, lixeira e histórico, e `search`/`fetch` (formato esperado pelo ChatGPT).
 

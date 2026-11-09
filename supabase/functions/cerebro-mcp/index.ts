@@ -32,7 +32,7 @@ const ALLOWED_CLIENT_IDS = (Deno.env.get("ALLOWED_CLIENT_IDS") ?? "")
   .split(",").map((s) => s.trim()).filter(Boolean);
 
 const SUPPORTED_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
-const SERVER_INFO = { name: "meu-segundo-cerebro", title: "Meu Segundo Cérebro", version: "0.3.2" };
+const SERVER_INFO = { name: "meu-segundo-cerebro", title: "Meu Segundo Cérebro", version: "0.3.3" };
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -898,6 +898,12 @@ async function handleRpc(auth: Auth, msg: RpcReq) {
             "processo, tipo processo, com empresa, numero, tribunal, vara, partes, status em andamento/suspenso/encerrado/arquivado, " +
             "fase, prazo = próximo prazo, e os andamentos no texto). Prazos contratuais (tipo prazo) em '⛽ Postos/⏳ Prazos', com a caixinha 'feita' (cumpriu → atualizar_tarefa concluida: true). Só registre o que está no " +
             "documento. O Obsidian cria sozinho uma tarefa de aviso antes de cada vencimento ou prazo de processo ('alerta_dias' muda a antecedência). " +
+            "Financeiro: cada gasto é uma nota tipo lancamento em '06 - Financeiro/Lancamentos/' com natureza (despesa/receita), " +
+            "valor, data (AAAA-MM-DD), mes_pagamento (AAAA-MM), status, categoria — UM destes valores exatos: mercado, farmácia, casa, " +
+            "contas da casa, funcionárias, saúde, pets, filhos, transporte, alimentação fora, lazer, roupas e beleza, educação, assinaturas, " +
+            "trabalho, outros — e forma_pagamento — UM destes: PIX/Dinheiro, Cartão XP, Cartão BTG, Cartão Nubank, Cartão Itaú, Cartão Guy " +
+            "(se a usuária não disser, pergunte; não deduza). Compra parcelada: crie UMA nota com o valor TOTAL e 'parcelas' (número); " +
+            "o Obsidian cria sozinho uma parcela por mês (não crie as parcelas você mesmo); 'primeira_parcela' (AAAA-MM) muda o mês da 1ª. " +
             "Filmes, séries, documentários e livros: uma nota por título (tipo: midia) em '03 - Conhecimento/🎬 Filmes, séries e livros/Títulos/', " +
             "com formato (Filme, Série, Documentário, Livro), status (quero assistir, assistindo, assistido, quero ler, lendo, lido, " +
             "abandonei), estrelas (1 a 5), ano_concluido, onde, indicado_por e capa (imagem via salvar_imagem na pasta " +
