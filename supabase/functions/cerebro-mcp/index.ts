@@ -32,7 +32,7 @@ const ALLOWED_CLIENT_IDS = (Deno.env.get("ALLOWED_CLIENT_IDS") ?? "")
   .split(",").map((s) => s.trim()).filter(Boolean);
 
 const SUPPORTED_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
-const SERVER_INFO = { name: "meu-segundo-cerebro", title: "Meu Segundo Cérebro", version: "0.3.0" };
+const SERVER_INFO = { name: "meu-segundo-cerebro", title: "Meu Segundo Cérebro", version: "0.3.1" };
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -891,12 +891,13 @@ async function handleRpc(auth: Auth, msg: RpcReq) {
             "As mudanças são aplicadas pelo Obsidian do computador principal em até ~2 minutos; confira com 'ver_alteracoes'. " +
             "Agenda (notas em '07 - Agenda', tipo tarefa, compromisso ou lembrete): dia em 'data'; horário em 'hora' e 'hora_fim' " +
             "no formato 14h30 (ou 'duracao_min'); com hora, o item aparece na semana por horário do Planejamento. " +
-            "Jurídico das empresas acompanhadas (em '02 - Trabalho', pasta '🏢 Empresas…'): uma pasta por empresa com a ficha " +
-            "(tipo empresa) e os documentos — tipo contrato, societario ou procuracao — com 'empresa' (link para a ficha), " +
-            "'vencimento' (AAAA-MM-DD), 'status' (vigente, encerrado…), 'risco' (Crítico, Alto, Médio, Baixo) e, no texto, " +
-            "resumo, principais informações, principais regras (cláusulas) e próximos passos; prazos (tipo prazo, com " +
-            "'vencimento', 'status' em aberto/concluído e 'empresas') na subpasta '⏳ Prazos'. Só registre o que está no " +
-            "documento. O Obsidian cria sozinho uma tarefa de aviso antes de cada vencimento ('alerta_dias' muda a antecedência). " +
+            "Jurídico ('02 - Trabalho/🗂️ Jurídico'): 4 divisões — '⛽ Postos', '💻 Cloone', '🏝️ Noronha' e '👤 Pessoal' —, cada uma com " +
+            "'📄 Documentos/<Empresa>/' (ficha tipo empresa + documentos tipo contrato, societario, procuracao ou documento, com " +
+            "'empresa' = link da ficha, 'vencimento' AAAA-MM-DD, 'status' vigente/encerrado, 'risco' Crítico/Alto/Médio/Baixo e, no " +
+            "texto, resumo, principais informações, principais regras (cláusulas) e próximos passos) e '⚖️ Processos/' (uma nota por " +
+            "processo, tipo processo, com empresa, numero, tribunal, vara, partes, status em andamento/suspenso/encerrado/arquivado, " +
+            "fase, prazo = próximo prazo, e os andamentos no texto). Prazos contratuais (tipo prazo) em '⛽ Postos/⏳ Prazos'. Só registre o que está no " +
+            "documento. O Obsidian cria sozinho uma tarefa de aviso antes de cada vencimento ou prazo de processo ('alerta_dias' muda a antecedência). " +
             "Filmes, séries, documentários e livros: uma nota por título (tipo: midia) em '03 - Conhecimento/🎬 Filmes, séries e livros/Títulos/', " +
             "com formato (Filme, Série, Documentário, Livro), status (quero assistir, assistindo, assistido, quero ler, lendo, lido, " +
             "abandonei), estrelas (1 a 5), ano_concluido, onde, indicado_por e capa (imagem via salvar_imagem na pasta " +

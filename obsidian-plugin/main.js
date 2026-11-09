@@ -91,7 +91,7 @@ module.exports = class PonteSegundoCerebro extends Plugin {
       // pedidos do Claude chegam mais rápido (a cada 2 min, só no principal)
       this.registerInterval(window.setInterval(() => this.verificarPedidos(), 120000));
       // avisos de vencimento (documentos, contratos, procurações, prazos): ao abrir e a cada 6 h
-      setTimeout(() => this.verificarVencimentos(false), 60000);
+      setTimeout(() => { this.verificarVencimentos(false); this.limparPastasVazias().catch(() => {}); }, 60000);
       this.registerInterval(window.setInterval(() => this.verificarVencimentos(false), 6 * 3600000));
     });
   }
@@ -734,6 +734,7 @@ module.exports = class PonteSegundoCerebro extends Plugin {
       }
     }
     try { await this.registrarHistorico(historico); } catch (e) { console.warn("[Segundo Cérebro] histórico:", e.message); }
+    try { await this.limparPastasVazias(); } catch (e) { console.warn("[Segundo Cérebro] pastas vazias:", e.message); }
     if (n) new Notice(`Segundo Cérebro: ${n} arquivo(s) criado(s), atualizado(s), movido(s) ou apagado(s) pela IA.`);
     return n;
   }
@@ -761,6 +762,39 @@ module.exports = class PonteSegundoCerebro extends Plugin {
     return n;
   }
 
+  // ---------- pastas que ficaram vazias depois que a IA moveu notas ----------
+  // Só considera as pastas de ORIGEM das notas movidas pela IA (lidas do histórico), e só apaga
+  // pasta realmente vazia. Nunca mexe nas pastas de nível 1, nas protegidas nem nas pastas
+  // que a configuração manda manter (Agenda, Diário, Treinos…). Nenhum arquivo é apagado.
+  async limparPastasVazias() {
+    if (!this.principal) return;
+    const h = this.app.vault.getAbstractFileByPath(NOTA_HISTORICO);
+    if (!(h instanceof TFile)) return;
+    const texto = await this.app.vault.cachedRead(h);
+    const origens = new Set();
+    for (const m of texto.matchAll(/\*\*mover\*\* · `([^`]+)` → `[^`]+` · [^\n]*movido para/g)) {
+      const partes = m[1].split("/").slice(0, -1);
+      while (partes.length >= 2) { origens.add(partes.join("/")); partes.pop(); }
+    }
+    if (!origens.size) return;
+    let manter = [this.settings.pastaEntrada, "07 - Agenda"];
+    const cfgF = this.app.vault.getAbstractFileByPath(NOTA_CONFIG);
+    if (cfgF instanceof TFile) {
+      try { manter = manter.concat(JSON.parse((await this.app.vault.cachedRead(cfgF)).match(/```json\n([\s\S]*?)\n```/)[1]).pastas || []); } catch {}
+    }
+    // das mais fundas para as mais rasas, para que a pasta-mãe fique vazia depois das filhas
+    const lista = [...origens].sort((a, b) => b.split("/").length - a.split("/").length);
+    const removidas = [];
+    for (const pasta of lista) {
+      if (manter.includes(pasta) || PASTAS_PROTEGIDAS.some((p) => (pasta + "/").startsWith(p))) continue;
+      const f = this.app.vault.getAbstractFileByPath(pasta);
+      if (!f || f instanceof TFile || !Array.isArray(f.children) || f.children.length) continue;
+      await this.app.vault.delete(f, false);
+      removidas.push(pasta);
+    }
+    if (removidas.length) console.log("[Segundo Cérebro] pastas vazias removidas:", removidas);
+  }
+
   // ---------- avisos de vencimento ----------
   // Para cada nota com `vencimento` (ou `validade`) de um tipo acompanhado, cria UMA tarefa na
   // Agenda quando faltar `alerta_dias` (ou o padrão do tipo). Nunca repete o mesmo aviso
@@ -782,15 +816,16 @@ module.exports = class PonteSegundoCerebro extends Plugin {
         const padrao = DIAS_ALERTA[tipo];
         if (padrao === undefined && fm.alerta_dias == null) continue;
         if (fm.alerta === false) continue;
-        if (/encerrad|revogad|substitu|feit|conclu|cancelad|cumprid|resolvid/i.test(String(fm.status || ""))) continue;
-        const venc = dataIsoDe(fm.vencimento ?? fm.validade);
+        if (/encerrad|revogad|substitu|feit|conclu|cancelad|cumprid|resolvid|arquivad|baixad/i.test(String(fm.status || ""))) continue;
+        // processos: o próximo prazo fica em `prazo`; o resto usa `vencimento` (ou `validade`)
+        const venc = dataIsoDe(tipo === "processo" ? fm.prazo : (fm.vencimento ?? fm.validade));
         if (!venc) continue;
         const dias = Number.isFinite(Number(fm.alerta_dias)) && fm.alerta_dias !== "" ? Number(fm.alerta_dias) : padrao ?? 60;
         if (hoje < somarDias(venc, -dias)) continue;          // ainda não é hora de avisar
         if (somarDias(venc, 30) < hoje) continue;             // venceu há mais de 30 dias
         const chave = `${f.path}|${venc}`;
         if (feitos[chave]) continue;
-        const nome = `⏰ Vence ${brData(venc)} - ${f.basename}`.replace(/[\\/:*?"<>|#^[\]]/g, "-").slice(0, 140).trim();
+        const nome = `⏰ ${tipo === "processo" ? "Prazo" : "Vence"} ${brData(venc)} - ${f.basename}`.replace(/[\\/:*?"<>|#^[\]]/g, "-").slice(0, 140).trim();
         const caminho = `07 - Agenda/${nome}.md`;
         if (!this.app.vault.getAbstractFileByPath(caminho)) {
           const link = `[[${f.path.replace(/\.md$/, "")}|${f.basename}]]`;
@@ -819,7 +854,7 @@ module.exports = class PonteSegundoCerebro extends Plugin {
 
 // ---------- datas ----------
 // Dias de antecedência padrão por tipo de nota (cada nota pode trocar com `alerta_dias`).
-const DIAS_ALERTA = { contrato: 90, societario: 60, procuracao: 60, documento: 60, prazo: 30, licenca: 60, certidao: 30 };
+const DIAS_ALERTA = { contrato: 90, societario: 60, procuracao: 60, documento: 60, prazo: 30, licenca: 60, certidao: 30, processo: 7 };
 const pad2 = (n) => String(n).padStart(2, "0");
 const isoDia = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 const diaDeIso = (s) => { const [a, m, d] = s.split("-").map(Number); return new Date(a, m - 1, d); };
@@ -935,10 +970,10 @@ class AgendaSemana extends MarkdownRenderChild {
         Object.assign(ev, { ini, fim: Math.min(fim, 24 * 60) });
         slot.horas.push(ev);
       } else {
-        const v = dataIsoDe(fm.vencimento) || dataIsoDe(fm.validade);
+        const v = tipo === "processo" ? dataIsoDe(fm.prazo) : dataIsoDe(fm.vencimento) || dataIsoDe(fm.validade);
         const slot = v && porDia.get(v);
         if (!slot) continue;
-        if (/pago|encerrad|revogad|substitu|feit|cancelad|conclu/.test(status)) continue;
+        if (/pago|encerrad|revogad|substitu|feit|cancelad|conclu|arquivad/.test(status)) continue;
         slot.todo.push({ f, tipo: "vencimento", feita: false, titulo: "⏰ " + f.basename });
       }
     }
