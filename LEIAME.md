@@ -21,6 +21,10 @@ Obsidian (Windows/iPhone)  ──plugin "Ponte"──▶  Supabase (notas + memo
 | Plugin "Ponte Segundo Cérebro" | `obsidian-plugin/` | Envia notas, apaga/renomeia em espelho, traz memórias para a Entrada |
 | Página de consentimento | `docs/` (GitHub Pages) | Tela "Permitir acesso?" exigida pelo OAuth Server do Supabase |
 
+## Plugin Ponte: agenda e avisos
+- Bloco ` ```agenda-semana``` ` (opções `inicio`, `fim`, `dias`, `pasta`): semana por horário com as notas `tipo: tarefa/compromisso/lembrete` (`data`, `hora`, `hora_fim` ou `duracao_min`) e os vencimentos do dia. Clique num horário vazio cria um compromisso; arrastar muda dia e hora.
+- Avisos de vencimento (só no dispositivo principal, ao abrir e a cada 6 h): notas `tipo: contrato/societario/procuracao/documento/prazo/licenca/certidao` (ou com `alerta_dias`) com `vencimento`/`validade` geram UMA tarefa ⏰ em `07 - Agenda` dentro da antecedência (padrão 90/60/60/60/30/60/30 dias). `alerta: false` desliga. Comando: "Verificar vencimentos agora".
+
 ## Ferramentas MCP
 `buscar`, `ler`, `datas`, `salvar_memoria`, `criar_nota`, `editar_nota`, `atualizar_tarefa`, `mover_nota`, `excluir_nota` (2 etapas, com confirmação) , `salvar_imagem` (fotos no Vault, bucket privado) e `ver_alteracoes` — com trava de versão, backup, lixeira e histórico, e `search`/`fetch` (formato esperado pelo ChatGPT).
 

@@ -16,7 +16,7 @@
  *  - Notas com `privado: true` (ou `cerebro: false`) e pastas excluídas nunca saem do Vault.
  *  - Usa só a chave pública + token da usuária: o RLS do Supabase protege os dados.
  */
-const { Plugin, PluginSettingTab, Setting, Notice, TFile, requestUrl, Platform, normalizePath } = require("obsidian");
+const { Plugin, PluginSettingTab, Setting, Notice, TFile, requestUrl, Platform, normalizePath, Modal, MarkdownRenderChild } = require("obsidian");
 
 const DEFAULTS = {
   supabaseUrl: "",
@@ -66,6 +66,14 @@ module.exports = class PonteSegundoCerebro extends Plugin {
     this.addCommand({ id: "entrar", name: "Entrar (login)", callback: () => this.abrirConfig() });
     this.addCommand({ id: "sair", name: "Sair (desconectar este aparelho)", callback: () => this.sair() });
     this.addCommand({ id: "configurar", name: "Aplicar configuração (favoritos, início, captura, diário)", callback: () => this.aplicarConfiguracao(true) });
+    this.addCommand({ id: "vencimentos", name: "Verificar vencimentos agora", callback: () => this.verificarVencimentos(true) });
+
+    // Agenda semanal por horário: bloco ```agenda-semana``` em qualquer nota.
+    instalarEstiloAgenda();
+    this.register(() => document.getElementById(ID_ESTILO_AGENDA)?.remove());
+    this.registerMarkdownCodeBlockProcessor("agenda-semana", (fonte, el, ctx) => {
+      ctx.addChild(new AgendaSemana(this, el, fonte));
+    });
 
     this.registerEvent(this.app.metadataCache.on("changed", (f) => this.agendar(f.path, "upsert")));
     this.registerEvent(this.app.vault.on("delete", (f) => { if (f instanceof TFile) this.agendar(f.path, "delete"); }));
@@ -82,6 +90,9 @@ module.exports = class PonteSegundoCerebro extends Plugin {
         Math.max(2, Number(this.settings.intervaloMin) || 10) * 60000));
       // pedidos do Claude chegam mais rápido (a cada 2 min, só no principal)
       this.registerInterval(window.setInterval(() => this.verificarPedidos(), 120000));
+      // avisos de vencimento (documentos, contratos, procurações, prazos): ao abrir e a cada 6 h
+      setTimeout(() => this.verificarVencimentos(false), 60000);
+      this.registerInterval(window.setInterval(() => this.verificarVencimentos(false), 6 * 3600000));
     });
   }
 
@@ -749,7 +760,371 @@ module.exports = class PonteSegundoCerebro extends Plugin {
     if (n) new Notice(`Segundo Cérebro: ${n} anotação(ões) nova(s) em "${pasta}".`);
     return n;
   }
+
+  // ---------- avisos de vencimento ----------
+  // Para cada nota com `vencimento` (ou `validade`) de um tipo acompanhado, cria UMA tarefa na
+  // Agenda quando faltar `alerta_dias` (ou o padrão do tipo). Nunca repete o mesmo aviso
+  // (nota + data); se a data mudar (renovação), um novo aviso vale para a nova data.
+  // Só no dispositivo principal. Não cria avisos de coisas vencidas há mais de 30 dias.
+  async verificarVencimentos(manual) {
+    if (!manual && !this.principal) return;
+    if (this.verificandoVenc) return;
+    this.verificandoVenc = true;
+    try {
+      const hoje = isoDia(new Date());
+      const feitos = this.settings.alertas || (this.settings.alertas = {});
+      const criados = [];
+      for (const f of this.app.vault.getMarkdownFiles()) {
+        if (f.path.startsWith("05 - Sistema/") || f.path.startsWith("07 - Agenda/")) continue;
+        const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
+        if (!fm) continue;
+        const tipo = String(fm.tipo || "");
+        const padrao = DIAS_ALERTA[tipo];
+        if (padrao === undefined && fm.alerta_dias == null) continue;
+        if (fm.alerta === false) continue;
+        if (/encerrad|revogad|substitu|feit|conclu|cancelad|cumprid|resolvid/i.test(String(fm.status || ""))) continue;
+        const venc = dataIsoDe(fm.vencimento ?? fm.validade);
+        if (!venc) continue;
+        const dias = Number.isFinite(Number(fm.alerta_dias)) && fm.alerta_dias !== "" ? Number(fm.alerta_dias) : padrao ?? 60;
+        if (hoje < somarDias(venc, -dias)) continue;          // ainda não é hora de avisar
+        if (somarDias(venc, 30) < hoje) continue;             // venceu há mais de 30 dias
+        const chave = `${f.path}|${venc}`;
+        if (feitos[chave]) continue;
+        const nome = `⏰ Vence ${brData(venc)} - ${f.basename}`.replace(/[\\/:*?"<>|#^[\]]/g, "-").slice(0, 140).trim();
+        const caminho = `07 - Agenda/${nome}.md`;
+        if (!this.app.vault.getAbstractFileByPath(caminho)) {
+          const link = `[[${f.path.replace(/\.md$/, "")}|${f.basename}]]`;
+          const area = f.path.startsWith("02 - Trabalho/") ? "trabalho" : "vida";
+          const conteudo = "---\n" +
+            `tipo: tarefa\nfeita: false\ndata: ${hoje}\nprazo: ${venc}\narea: ${area}\nprioridade: alta\n` +
+            `documento: "${link.replace(/"/g, "'")}"\norigem: aviso de vencimento\n---\n` +
+            `**${link}** vence em **${brData(venc)}** (aviso com ${dias} dias de antecedência).\n\n` +
+            "- [ ] Ver o que precisa ser feito (renovar, renegociar, encerrar ou cumprir)\n" +
+            "- [ ] Atualizar a nota do documento (nova data ou status)\n";
+          await this.garantirPasta("07 - Agenda");
+          await this.app.vault.create(caminho, conteudo);
+          criados.push(`- ${new Date().toLocaleString("pt-BR")} · **aviso de vencimento** · \`${caminho}\` · para \`${f.path}\` · Ponte`);
+        }
+        feitos[chave] = hoje;
+      }
+      await this.salvarConfig();
+      if (criados.length) {
+        await this.registrarHistorico(criados);
+        new Notice(`⏰ ${criados.length} aviso(s) de vencimento na Agenda`, 10000);
+      } else if (manual) new Notice("Nenhum vencimento novo para avisar.");
+    } catch (e) { console.warn("[Segundo Cérebro] vencimentos:", e.message); }
+    finally { this.verificandoVenc = false; }
+  }
 };
+
+// ---------- datas ----------
+// Dias de antecedência padrão por tipo de nota (cada nota pode trocar com `alerta_dias`).
+const DIAS_ALERTA = { contrato: 90, societario: 60, procuracao: 60, documento: 60, prazo: 30, licenca: 60, certidao: 30 };
+const pad2 = (n) => String(n).padStart(2, "0");
+const isoDia = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const diaDeIso = (s) => { const [a, m, d] = s.split("-").map(Number); return new Date(a, m - 1, d); };
+const somarDias = (iso, n) => { const d = diaDeIso(iso); d.setDate(d.getDate() + n); return isoDia(d); };
+const brData = (iso) => iso.split("-").reverse().join("/");
+function dataIsoDe(v) {
+  if (v instanceof Date && !isNaN(v)) return isoDia(v);
+  const m = String(v ?? "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : null;
+}
+// "14h30", "14:30", "14h", "9", "09:00" → minutos desde 0h (ou null)
+function minutosDe(v) {
+  const m = String(v ?? "").trim().toLowerCase().match(/^(\d{1,2})(?:\s*(?:h|:)\s*(\d{2})?)?\s*(?:h|min)?$/);
+  if (!m) return null;
+  const h = Number(m[1]), mi = Number(m[2] || 0);
+  return h < 24 && mi < 60 ? h * 60 + mi : null;
+}
+const horaTexto = (min) => `${Math.floor(min / 60)}h${pad2(min % 60)}`;
+
+// ---------- agenda semanal por horário ----------
+const ID_ESTILO_AGENDA = "sc-agenda-semana-css";
+const AGENDAVEIS = ["tarefa", "compromisso", "lembrete"];
+const DIAS_SEMANA = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+const MESES = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+const ALTURA_HORA = 48;
+
+function instalarEstiloAgenda() {
+  if (document.getElementById(ID_ESTILO_AGENDA)) return;
+  const s = document.createElement("style");
+  s.id = ID_ESTILO_AGENDA;
+  s.textContent = `
+.sc-semana{--h:${ALTURA_HORA}px;border:1px solid var(--background-modifier-border);border-radius:12px;background:var(--background-primary);overflow:hidden;font-size:13px;margin:8px 0}
+.sc-semana-barra{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--background-modifier-border)}
+.sc-semana-barra .titulo{font-weight:600;font-size:15px;margin-right:auto}
+.sc-semana-barra button{padding:4px 10px;font-size:13px;height:auto}
+.sc-semana-grade{display:grid;overflow:auto;max-height:72vh;position:relative}
+.sc-semana-cab{position:sticky;top:0;z-index:3;background:var(--background-primary);border-bottom:1px solid var(--background-modifier-border);text-align:center;padding:6px 2px;line-height:1.2}
+.sc-semana-cab .dn{font-size:11px;text-transform:uppercase;color:var(--text-muted);letter-spacing:.04em}
+.sc-semana-cab .dd{font-size:18px;font-weight:600}
+.sc-semana-cab.hoje .dd{color:var(--text-on-accent);background:var(--interactive-accent);border-radius:999px;display:inline-block;min-width:30px;padding:0 6px}
+.sc-semana-cab.canto{position:sticky;left:0;z-index:4}
+.sc-semana-dia-todo{border-bottom:1px solid var(--background-modifier-border);border-left:1px solid var(--background-modifier-border);padding:3px;min-height:26px;display:flex;flex-direction:column;gap:2px;background:var(--background-primary)}
+.sc-semana-rot{font-size:10px;color:var(--text-faint);text-align:right;padding:2px 6px 0 0;position:sticky;left:0;background:var(--background-primary);z-index:1}
+.sc-semana-horas{position:relative;border-left:1px solid var(--background-modifier-border);background:repeating-linear-gradient(to bottom,var(--background-modifier-border) 0 1px,transparent 1px var(--h))}
+.sc-semana-horas.hoje{background-color:var(--background-secondary)}
+.sc-semana-horas.alvo{outline:2px dashed var(--interactive-accent);outline-offset:-2px}
+.sc-ev{position:absolute;left:2px;right:2px;border-radius:6px;padding:2px 5px;overflow:hidden;cursor:pointer;line-height:1.25;font-size:12px;border-left:3px solid var(--sc-cor);background:color-mix(in srgb,var(--sc-cor) 18%,var(--background-primary));color:var(--text-normal);box-sizing:border-box}
+.sc-ev:hover{filter:brightness(1.06);z-index:2}
+.sc-ev .h{font-size:10.5px;color:var(--text-muted);display:block}
+.sc-ev.feita,.sc-chip.feita{opacity:.5;text-decoration:line-through}
+.sc-chip{border-radius:5px;padding:1px 5px;font-size:11.5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-left:3px solid var(--sc-cor);background:color-mix(in srgb,var(--sc-cor) 16%,var(--background-primary))}
+.sc-agora{position:absolute;left:0;right:0;height:2px;background:var(--color-red);z-index:2;pointer-events:none}
+.sc-agora::before{content:"";position:absolute;left:-4px;top:-4px;width:10px;height:10px;border-radius:50%;background:var(--color-red)}
+.sc-semana-legenda{display:flex;flex-wrap:wrap;gap:4px 14px;padding:8px 12px;border-top:1px solid var(--background-modifier-border);font-size:12px;color:var(--text-muted)}
+.sc-semana-legenda i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px;background:var(--sc-cor)}
+.sc-ev-compromisso{--sc-cor:var(--interactive-accent)} .sc-ev-tarefa{--sc-cor:var(--color-green)}
+.sc-ev-lembrete{--sc-cor:var(--color-orange)} .sc-ev-vencimento{--sc-cor:var(--color-red)}
+`;
+  document.head.appendChild(s);
+}
+
+class AgendaSemana extends MarkdownRenderChild {
+  constructor(plugin, el, fonte) {
+    super(el);
+    this.plugin = plugin;
+    this.app = plugin.app;
+    const op = {};
+    for (const l of String(fonte || "").split("\n")) { const m = l.match(/^\s*([a-z_]+)\s*:\s*(.+?)\s*$/i); if (m) op[m[1].toLowerCase()] = m[2]; }
+    this.hIni = Math.min(23, Math.max(0, parseInt(op.inicio ?? "7", 10) || 0));
+    this.hFim = Math.min(24, Math.max(this.hIni + 1, parseInt(op.fim ?? "22", 10) || 22));
+    this.diasFixo = op.dias ? Math.min(7, Math.max(1, parseInt(op.dias, 10) || 7)) : null;
+    this.pasta = op.pasta || "07 - Agenda";
+    this.base = new Date(); this.base.setHours(0, 0, 0, 0);
+  }
+
+  onload() {
+    this.desenhar();
+    const agendar = () => { clearTimeout(this.t); this.t = setTimeout(() => this.desenhar(), 400); };
+    this.registerEvent(this.app.metadataCache.on("changed", agendar));
+    this.registerEvent(this.app.vault.on("delete", agendar));
+    this.registerEvent(this.app.vault.on("rename", agendar));
+    this.registerInterval(window.setInterval(() => this.desenhar(), 5 * 60000));
+  }
+  onunload() { clearTimeout(this.t); }
+
+  get nDias() { return this.diasFixo || ((this.containerEl.clientWidth || window.innerWidth) < 640 ? 3 : 7); }
+
+  inicio() {
+    const d = new Date(this.base);
+    if (this.nDias === 7) d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // semana começa na segunda
+    return d;
+  }
+
+  coletar(dias) {
+    const porDia = new Map(dias.map((d) => [d, { horas: [], todo: [] }]));
+    for (const f of this.app.vault.getMarkdownFiles()) {
+      if (f.path.startsWith("05 - Sistema/")) continue;
+      const fm = this.app.metadataCache.getFileCache(f)?.frontmatter;
+      if (!fm || !fm.tipo) continue;
+      const tipo = String(fm.tipo);
+      const status = String(fm.status || "").toLowerCase();
+      if (status === "cancelada") continue;
+      if (AGENDAVEIS.includes(tipo)) {
+        const dia = dataIsoDe(fm.data) || dataIsoDe(fm.prazo);
+        const slot = dia && porDia.get(dia);
+        if (!slot) continue;
+        const feita = fm.feita === true || status === "feita";
+        const ini = minutosDe(fm.hora);
+        const ev = { f, tipo, feita, titulo: f.basename, local: fm.local, campoDia: fm.data ? "data" : "prazo", fm };
+        if (ini === null) { slot.todo.push(ev); continue; }
+        let fim = minutosDe(fm.hora_fim);
+        if (fim === null || fim <= ini) fim = ini + (Number(fm.duracao_min) > 0 ? Number(fm.duracao_min) : tipo === "compromisso" ? 60 : 30);
+        Object.assign(ev, { ini, fim: Math.min(fim, 24 * 60) });
+        slot.horas.push(ev);
+      } else {
+        const v = dataIsoDe(fm.vencimento) || dataIsoDe(fm.validade);
+        const slot = v && porDia.get(v);
+        if (!slot) continue;
+        if (/pago|encerrad|revogad|substitu|feit|cancelad|conclu/.test(status)) continue;
+        slot.todo.push({ f, tipo: "vencimento", feita: false, titulo: "⏰ " + f.basename });
+      }
+    }
+    return porDia;
+  }
+
+  abrir(f, ev) { this.app.workspace.getLeaf(ev && (ev.ctrlKey || ev.metaKey) ? "tab" : false).openFile(f); }
+
+  async mover(caminho, dia, minuto) {
+    const f = this.app.vault.getAbstractFileByPath(caminho);
+    if (!(f instanceof TFile)) return;
+    await this.app.fileManager.processFrontMatter(f, (fm) => {
+      const ini = minutosDe(fm.hora), fim = minutosDe(fm.hora_fim);
+      const dur = ini !== null && fim !== null && fim > ini ? fim - ini : null;
+      if (fm.data || !fm.prazo) fm.data = dia; else fm.prazo = dia;
+      if (minuto !== null) {
+        fm.hora = horaTexto(minuto);
+        if (dur !== null) fm.hora_fim = horaTexto(Math.min(minuto + dur, 23 * 60 + 59));
+      }
+    });
+  }
+
+  novo(dia, minuto) {
+    new PerguntaModal(this.app, `Novo compromisso · ${brData(dia)} às ${horaTexto(minuto)}`, "O que é?", async (titulo) => {
+      const nome = titulo.replace(/[\\/:*?"<>|#^[\]]/g, "-").trim().slice(0, 120);
+      if (!nome) return;
+      await this.plugin.garantirPasta(this.pasta);
+      let caminho = `${this.pasta}/${nome}.md`, n = 2;
+      while (this.app.vault.getAbstractFileByPath(caminho)) caminho = `${this.pasta}/${nome} (${n++}).md`;
+      const f = await this.app.vault.create(caminho,
+        `---\ntipo: compromisso\ndata: ${dia}\nhora: "${horaTexto(minuto)}"\nhora_fim: "${horaTexto(Math.min(minuto + 60, 23 * 60 + 59))}"\nlocal:\npessoa:\n---\n`);
+      this.app.workspace.getLeaf(false).openFile(f);
+    }).open();
+  }
+
+  desenhar() {
+    const el = this.containerEl;
+    const n = this.nDias;
+    const ini = this.inicio();
+    const dias = Array.from({ length: n }, (_, i) => { const d = new Date(ini); d.setDate(d.getDate() + i); return isoDia(d); });
+    const hoje = isoDia(new Date());
+    const porDia = this.coletar(dias);
+
+    // a grade cresce se houver algo fora do horário padrão
+    let hI = this.hIni, hF = this.hFim;
+    for (const { horas } of porDia.values()) for (const e of horas) { hI = Math.min(hI, Math.floor(e.ini / 60)); hF = Math.max(hF, Math.ceil(e.fim / 60)); }
+
+    el.empty();
+    const caixa = el.createDiv({ cls: "sc-semana" });
+    const barra = caixa.createDiv({ cls: "sc-semana-barra" });
+    const d0 = diaDeIso(dias[0]), d1 = diaDeIso(dias[n - 1]);
+    const rotulo = d0.getMonth() === d1.getMonth()
+      ? `${d0.getDate()} – ${d1.getDate()} de ${MESES[d1.getMonth()]} ${d1.getFullYear()}`
+      : `${d0.getDate()} ${MESES[d0.getMonth()]} – ${d1.getDate()} ${MESES[d1.getMonth()]} ${d1.getFullYear()}`;
+    barra.createSpan({ cls: "titulo", text: rotulo });
+    const passo = n === 7 ? 7 : n;
+    const nav = (txt, fn, dica) => { const b = barra.createEl("button", { text: txt, attr: { "aria-label": dica } }); b.onclick = () => { fn(); this.desenhar(); }; };
+    nav("‹", () => this.base.setDate(this.base.getDate() - passo), "Anterior");
+    nav("Hoje", () => { this.base = new Date(); this.base.setHours(0, 0, 0, 0); }, "Hoje");
+    nav("›", () => this.base.setDate(this.base.getDate() + passo), "Próxima");
+
+    const grade = caixa.createDiv({ cls: "sc-semana-grade" });
+    grade.style.gridTemplateColumns = `46px repeat(${n}, minmax(${n === 7 ? 92 : 80}px, 1fr))`;
+    grade.createDiv({ cls: "sc-semana-cab canto" });
+    for (const dia of dias) {
+      const d = diaDeIso(dia);
+      const cab = grade.createDiv({ cls: "sc-semana-cab" + (dia === hoje ? " hoje" : "") });
+      cab.createDiv({ cls: "dn", text: DIAS_SEMANA[d.getDay()] });
+      cab.createDiv({ cls: "dd", text: String(d.getDate()) });
+    }
+    // linha "o dia todo": tarefas sem hora e vencimentos
+    const fixos = [grade.createDiv({ cls: "sc-semana-rot", text: "dia" })];
+    fixos[0].style.zIndex = "4";
+    for (const dia of dias) {
+      const c = grade.createDiv({ cls: "sc-semana-dia-todo" });
+      fixos.push(c);
+      for (const e of porDia.get(dia).todo) {
+        const chip = c.createDiv({ cls: `sc-chip sc-ev-${e.tipo}` + (e.feita ? " feita" : ""), text: e.titulo, attr: { title: e.titulo } });
+        chip.onclick = (ev) => this.abrir(e.f, ev);
+        if (e.tipo !== "vencimento") this.arrastavel(chip, e.f.path);
+      }
+    }
+    // coluna das horas
+    const alturaTotal = (hF - hI) * ALTURA_HORA;
+    const rot = grade.createDiv({ cls: "sc-semana-rot" });
+    rot.style.height = alturaTotal + "px";
+    rot.style.position = "sticky";
+    for (let h = hI; h < hF; h++) {
+      const r = rot.createDiv({ text: `${h}h` });
+      r.style.height = ALTURA_HORA + "px";
+    }
+    for (const dia of dias) {
+      const col = grade.createDiv({ cls: "sc-semana-horas" + (dia === hoje ? " hoje" : "") });
+      col.style.height = alturaTotal + "px";
+      col.onclick = (ev) => {
+        if (ev.target !== col) return;
+        const min = hI * 60 + Math.floor((ev.offsetY / ALTURA_HORA) * 4) * 15;
+        this.novo(dia, Math.min(min, 23 * 60 + 45));
+      };
+      col.addEventListener("dragover", (ev) => { ev.preventDefault(); col.addClass("alvo"); });
+      col.addEventListener("dragleave", () => col.removeClass("alvo"));
+      col.addEventListener("drop", (ev) => {
+        ev.preventDefault(); col.removeClass("alvo");
+        const caminho = ev.dataTransfer.getData("text/sc-agenda");
+        if (!caminho) return;
+        const y = ev.clientY - col.getBoundingClientRect().top - (Number(ev.dataTransfer.getData("text/sc-offset")) || 0);
+        const min = hI * 60 + Math.max(0, Math.round((y / ALTURA_HORA) * 4)) * 15;
+        this.mover(caminho, dia, Math.min(min, 23 * 60 + 45));
+      });
+      // eventos com hora, lado a lado quando se sobrepõem
+      const evs = porDia.get(dia).horas.sort((a, b) => a.ini - b.ini || b.fim - a.fim);
+      let grupo = [], fimGrupo = -1;
+      const fechar = () => {
+        const faixas = [];
+        for (const e of grupo) {
+          let i = faixas.findIndex((fimFaixa) => fimFaixa <= e.ini);
+          if (i < 0) { i = faixas.length; faixas.push(0); }
+          faixas[i] = e.fim; e.faixa = i;
+        }
+        for (const e of grupo) e.nFaixas = faixas.length;
+        grupo = [];
+      };
+      for (const e of evs) { if (e.ini >= fimGrupo && grupo.length) fechar(); grupo.push(e); fimGrupo = Math.max(fimGrupo, e.fim); }
+      if (grupo.length) fechar();
+      for (const e of evs) {
+        const b = col.createDiv({ cls: `sc-ev sc-ev-${e.tipo}` + (e.feita ? " feita" : "") });
+        b.style.top = ((e.ini - hI * 60) / 60) * ALTURA_HORA + 1 + "px";
+        b.style.height = Math.max(20, ((e.fim - e.ini) / 60) * ALTURA_HORA - 2) + "px";
+        const w = 100 / e.nFaixas;
+        b.style.left = `calc(${e.faixa * w}% + 2px)`;
+        b.style.width = `calc(${w}% - 4px)`;
+        b.style.right = "auto";
+        b.createSpan({ cls: "h", text: `${horaTexto(e.ini)}–${horaTexto(e.fim)}${e.local ? " · " + e.local : ""}` });
+        b.createSpan({ text: e.titulo });
+        b.setAttr("title", `${e.titulo}\n${horaTexto(e.ini)}–${horaTexto(e.fim)}${e.local ? "\n" + e.local : ""}`);
+        b.onclick = (ev) => { ev.stopPropagation(); this.abrir(e.f, ev); };
+        this.arrastavel(b, e.f.path);
+      }
+      if (dia === hoje) {
+        const agora = new Date(), m = agora.getHours() * 60 + agora.getMinutes();
+        if (m >= hI * 60 && m <= hF * 60) { const l = col.createDiv({ cls: "sc-agora" }); l.style.top = ((m - hI * 60) / 60) * ALTURA_HORA + "px"; }
+      }
+    }
+    const leg = caixa.createDiv({ cls: "sc-semana-legenda" });
+    for (const [t, nome] of [["compromisso", "Compromisso"], ["tarefa", "Tarefa"], ["lembrete", "Lembrete"], ["vencimento", "Vencimento"]]) {
+      const s = leg.createSpan({ cls: `sc-ev-${t}` }); s.createEl("i"); s.appendText(nome);
+    }
+    leg.createSpan({ text: Platform.isMobile ? "Toque num horário vazio para criar." : "Clique num horário vazio para criar · arraste para mudar o dia ou a hora." });
+
+    // a linha "dia" fica presa logo abaixo do cabeçalho ao rolar as horas
+    requestAnimationFrame(() => {
+      const alt = grade.querySelector(".sc-semana-cab")?.offsetHeight || 52;
+      for (const c of fixos) { c.style.position = "sticky"; c.style.top = alt + "px"; c.style.zIndex = c.style.zIndex || "2"; c.style.background = "var(--background-primary)"; }
+    });
+    // rola até perto da hora atual (ou do 1º compromisso) na primeira vez
+    if (!this.rolou) {
+      this.rolou = true;
+      const alvo = Math.max(hI, Math.min(new Date().getHours() - 1, hF - 6));
+      requestAnimationFrame(() => { grade.scrollTop = (alvo - hI) * ALTURA_HORA; });
+    }
+  }
+
+  arrastavel(elem, caminho) {
+    if (Platform.isMobile) return;
+    elem.setAttr("draggable", "true");
+    elem.addEventListener("dragstart", (ev) => {
+      ev.dataTransfer.setData("text/sc-agenda", caminho);
+      ev.dataTransfer.setData("text/sc-offset", String(ev.offsetY || 0));
+      ev.dataTransfer.effectAllowed = "move";
+    });
+  }
+}
+
+class PerguntaModal extends Modal {
+  constructor(app, titulo, rotulo, aoConfirmar) { super(app); this.titulo = titulo; this.rotulo = rotulo; this.aoConfirmar = aoConfirmar; }
+  onOpen() {
+    this.titleEl.setText(this.titulo);
+    const input = this.contentEl.createEl("input", { type: "text", attr: { placeholder: this.rotulo, style: "width:100%" } });
+    const ok = () => { const v = input.value.trim(); this.close(); if (v) this.aoConfirmar(v); };
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") ok(); });
+    const b = this.contentEl.createDiv({ attr: { style: "margin-top:12px;text-align:right" } }).createEl("button", { text: "Criar", cls: "mod-cta" });
+    b.onclick = ok;
+    setTimeout(() => input.focus(), 20);
+  }
+  onClose() { this.contentEl.empty(); }
+}
 
 class Configuracoes extends PluginSettingTab {
   constructor(app, plugin) { super(app, plugin); this.plugin = plugin; }
