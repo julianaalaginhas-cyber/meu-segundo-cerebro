@@ -424,3 +424,24 @@ body:has(.fila-lote) main { padding-bottom: 150px; }
   .chips.rolar { flex-wrap: wrap; overflow: visible; margin: 2px 0 0; padding: 2px 0 4px; }
   .segmentado { max-width: 640px; }
 }
+
+/* Afiloop › Estúdio */
+.card.pad { padding: 14px 16px; }
+.est-form .campo > span { margin-left: 0; }
+.est-form textarea, .est-form input { box-shadow: none; background: var(--card2); }
+.est-vazio { color: var(--txt2); font-size: 14px; line-height: 1.6; margin-top: 12px; }
+.est-gancho { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; border: 0; border-top: 1px solid var(--linha); background: none; text-align: left; font-size: 15px; color: var(--txt); }
+.est-gancho:first-child { border-top: 0; }
+.est-gancho.on { background: color-mix(in srgb, var(--afiloop) 10%, transparent); }
+.est-gancho.on .marca { border-color: var(--afiloop); background: var(--afiloop); box-shadow: inset 0 0 0 4px var(--card); }
+.est-gancho .tag { margin-left: 6px; }
+.est-linha { align-items: flex-start; }
+.est-linha > b { flex: none; width: 64px; font-size: 13px; color: var(--afiloop); padding-top: 1px; }
+.est-legenda { width: 100%; border: 0; background: var(--card2); border-radius: 10px; padding: 10px 12px; font-size: 15px; line-height: 1.45; resize: vertical; margin-bottom: 8px; }
+.est-lista { margin: 0; padding-left: 18px; line-height: 1.55; font-size: 14px; }
+.est-res { margin-top: 12px; }
+@media (min-width: 1024px) {
+  .est-grade { display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 24px; align-items: start; }
+  .est-form { position: sticky; top: 16px; margin-top: 12px; }
+  .est-vazio { margin-top: 12px; }
+}

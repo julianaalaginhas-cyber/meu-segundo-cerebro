@@ -545,13 +545,90 @@ function folhaPost(i) {
   });
 }
 
+// ---------------- Afiloop › Estúdio de criação ----------------
+// A ideia é sempre da Juliana; o Estúdio aplica o estilo do Laura Club e devolve roteiro, legenda e regras de edição.
+const FORMATOS_EST = [["reels_pack", "🎬 Reels do pack"], ["carrossel_laura", "👩 Carrossel da LAURA"], ["dupe", "💎 Dupe"], ["meme", "😂 Meme"], ["tiktok_rapido", "⚡ TikTok rápido"]];
+const estEst = { ideia: "", formato: "reels_pack", rede: "instagram+tiktok", itens: "", res: null, gancho: 0, gerando: false };
+function sincronizarEstudio() {
+  const v = (id) => document.getElementById(id)?.value;
+  if (v("e-ideia") !== undefined) estEst.ideia = v("e-ideia");
+  if (v("e-itens") !== undefined) estEst.itens = v("e-itens");
+  if (estEst.res) { if (v("e-titulo") !== undefined) estEst.res.titulo = v("e-titulo"); if (v("e-legenda") !== undefined) estEst.res.legenda = v("e-legenda"); }
+}
+function corpoEstudio() {
+  const r = estEst.res;
+  const form = `<div class="card pad est-form">
+    <label class="campo"><span>Sua ideia</span><textarea id="e-ideia" rows="4" placeholder="Ex.: 3 jeitos de usar a bolsa branca de corrente no fim de ano">${esc(estEst.ideia)}</textarea></label>
+    <div class="campo"><span>Formato</span><div class="chips">${FORMATOS_EST.map(([id, n]) => `<button class="chip mini${estEst.formato === id ? " on" : ""}" data-eformato="${id}">${n}</button>`).join("")}</div></div>
+    <div class="campo"><span>Rede</span><div class="chips">${[["instagram+tiktok", "IG + TikTok"], ["instagram", "Só Instagram"], ["tiktok", "Só TikTok"]].map(([id, n]) => `<button class="chip mini${estEst.rede === id ? " on" : ""}" data-erede="${id}">${n}</button>`).join("")}</div></div>
+    <label class="campo"><span>Produto (opcional): código do pack ou da oferta</span><input id="e-itens" value="${esc(estEst.itens)}" placeholder="Ex.: PACK-V0163, OFERTA-14" autocapitalize="characters"></label>
+    <button class="btn" data-est="gerar" style="--area:var(--afiloop)" ${estEst.gerando ? "disabled" : ""}>${estEst.gerando ? "Criando…" : r ? "✨ Gerar outra versão" : "✨ Criar roteiro"}</button>
+    <button class="btn-link" data-est="estilo" style="--area:var(--afiloop);width:100%;margin-top:6px">Meu estilo</button></div>`;
+  if (!r) return `<div class="est-grade">${form}<div class="card pad est-vazio">Escreva a ideia, escolha o formato e eu devolvo:<br>3 ganchos, roteiro com cortes ou slides, texto na tela, legenda com CTA, o que gravar e as regras de edição, tudo no estilo do Laura Club.<br><br>Depois é só mandar para a Fila.</div></div>`;
+  const g = estEst.gancho;
+  return `<div class="est-grade">${form}<div class="est-res">
+    ${r.alertas.length ? `<div class="aviso-suave forte">⚠️ ${r.alertas.map(esc).join("<br>⚠️ ")}</div>` : ""}
+    <div class="card pad"><label class="campo" style="margin:0"><span>Título</span><input id="e-titulo" value="${esc(r.titulo)}"></label></div>
+    <div class="secao-titulo">Gancho (escolha 1)</div>
+    <div class="card">${r.ganchos.map((x, k) => `<button class="est-gancho${g === k ? " on" : ""}" data-egancho="${k}"><span class="marca" aria-hidden="true"></span><span>${esc(x)}${k === r.gancho_recomendado ? ` <b class="tag ok">recomendado</b>` : ""}</span></button>`).join("")}</div>
+    ${r.por_que ? `<p class="fila-dica">${esc(r.por_que)}</p>` : ""}
+    <div class="secao-titulo">Roteiro</div>
+    <div class="card">${r.roteiro.map((x) => `<div class="linha-item est-linha"><b>${esc(x.quando)}</b><div class="txt"><div>${esc(x.cena)}</div>${x.texto_tela ? `<div class="t2">Na tela: “${esc(x.texto_tela)}”</div>` : ""}</div></div>`).join("")}</div>
+    <div class="secao-titulo">Legenda ${r.cta_palavra ? `· CTA: Comenta ${esc(r.cta_palavra)}` : ""}</div>
+    <div class="card pad"><textarea id="e-legenda" rows="9" class="est-legenda">${esc(r.legenda)}</textarea><button class="btn sec pequeno" data-est="copiar">📋 Copiar legenda</button></div>
+    ${r.gravar.length ? `<div class="secao-titulo">O que gravar ou produzir</div><div class="card pad"><ul class="est-lista">${r.gravar.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
+    <div class="secao-titulo">Edição</div><div class="card pad"><ul class="est-lista">${[["Texto na tela", "texto_tela"], ["Ritmo", "ritmo"], ["Áudio", "audio"], ["Capa", "capa"]].filter(([, k]) => r.edicao[k]).map(([n, k]) => `<li><b>${n}:</b> ${esc(r.edicao[k])}</li>`).join("")}</ul></div>
+    ${r.produtos?.length ? `<p class="fila-dica">Baseado em: ${r.produtos.map((x) => esc(x.split(":")[0])).join(", ")}</p>` : ""}
+    <button class="btn" data-est="fila" style="--area:var(--afiloop);margin-top:14px">📥 Mandar para a Fila</button></div></div>`;
+}
+async function cliqueEstudio(t) {
+  sincronizarEstudio();
+  if (t.dataset.eformato) { estEst.formato = t.dataset.eformato; return render(); }
+  if (t.dataset.erede) { estEst.rede = t.dataset.erede; return render(); }
+  if (t.dataset.egancho) { estEst.gancho = Number(t.dataset.egancho); return render(); }
+  const a = t.dataset.est;
+  if (a === "estilo") return folhaEstilo();
+  if (a === "copiar") { try { await navigator.clipboard.writeText(estEst.res.legenda); toast("Legenda copiada ✓"); } catch { toast("Não deu para copiar."); } return; }
+  if (a === "gerar") {
+    if (estEst.ideia.trim().length < 4) { toast("Escreva a sua ideia."); return document.getElementById("e-ideia")?.focus(); }
+    estEst.gerando = true; render();
+    try {
+      const itens = estEst.itens.split(/[\s,;]+/).filter(Boolean);
+      estEst.res = await api("/afiloop/estudio/gerar", { ideia: estEst.ideia, formato: estEst.formato, rede: estEst.rede, itens });
+      estEst.gancho = estEst.res.gancho_recomendado ?? 0;
+    } catch (e) { toast(e.message); }
+    estEst.gerando = false; return render();
+  }
+  if (a === "fila") {
+    const r = estEst.res; if (!r) return;
+    const corpo = { formato: r.formato, rede: r.rede, itens: r.itens, ideia: estEst.ideia, titulo: r.titulo, gancho: r.ganchos[estEst.gancho] ?? "", legenda: r.legenda,
+      roteiro: r.roteiro, gravar: r.gravar, edicao: r.edicao, cta_palavra: r.cta_palavra };
+    t.disabled = true;
+    try { await api("/afiloop/estudio/fila", corpo); toast("Na Fila ✓ (em Propostas)"); estEst.res = null; estEst.ideia = ""; estEst.itens = ""; filaEst.aba = "proposta"; estado.afiloopParte = "fila"; return render(); }
+    catch (e) { toast(e.message); t.disabled = false; }
+  }
+}
+async function folhaEstilo() {
+  const d = await acao(() => api("/afiloop/estudio/estilo"));
+  folha(`<h2>Meu estilo</h2><p style="color:var(--txt2);margin-top:-4px;font-size:14px">É assim que o Estúdio escreve. Mude o que quiser: tom, CTA, palavras proibidas, emojis.</p>
+    <label class="campo"><textarea id="s-estilo" rows="14">${esc(d.estilo)}</textarea></label>
+    <details class="fila-editar"><summary>Regras fixas (não mudam)</summary><div class="bloco-txt peq">${esc(d.regras)}</div></details>
+    <button class="btn" id="s-ok" style="--area:var(--afiloop)">Salvar estilo</button>
+    <button class="btn-link" id="s-padrao" style="--area:var(--txt2);width:100%;margin-top:6px">Voltar ao estilo padrão</button>`, (f, fechar) => {
+    $("#s-ok", f).onclick = async () => { await acao(() => api("/afiloop/estudio/estilo", { estilo: $("#s-estilo", f).value }), "Estilo salvo ✓"); fechar(); };
+    $("#s-padrao", f).onclick = async () => { if (!confirm("Voltar ao estilo padrão?")) return; await acao(() => api("/afiloop/estudio/estilo", { estilo: "" }), "Estilo padrão ✓"); fechar(); };
+  });
+}
+
 // ---------------- AFILOOP ----------------
 async function telaAfiloop() {
-  const partes = [["fila", "📥 Fila"], ["calendario", "📅 Calendário"], ["ofertas", "🛒 Ofertas"], ["biblioteca", "🎬 Pack"], ["resultados", "📊 Resultados"]];
+  const partes = [["fila", "📥 Fila"], ["estudio", "✨ Estúdio"], ["calendario", "📅 Calendário"], ["ofertas", "🛒 Ofertas"], ["biblioteca", "🎬 Pack"], ["resultados", "📊 Resultados"]];
   let corpo = "";
   const p = estado.afiloopParte;
   if (p === "fila") {
     corpo = await corpoFila();
+  } else if (p === "estudio") {
+    corpo = corpoEstudio();
   } else if (p === "ofertas") {
     const o = await api("/afiloop/ofertas");
     corpo = `<div class="card">${o.length ? o.map(ofertaHtml).join("") : `<div class="vazio">Nenhuma oferta salva ainda.</div>`}</div>
@@ -1372,7 +1449,8 @@ document.addEventListener("click", async (e) => {
     return render();
   }
   if (t.dataset.mes) { estado.finMes = somaMes(estado.finMes, Number(t.dataset.mes)); return render(); }
-  if (t.dataset.parte) { estado.afiloopParte = t.dataset.parte; filaEst.sel = null; return render(); }
+  if (t.dataset.parte) { if (estado.afiloopParte === "estudio") sincronizarEstudio(); estado.afiloopParte = t.dataset.parte; filaEst.sel = null; return render(); }
+  if (t.dataset.est || t.dataset.eformato || t.dataset.erede || t.dataset.egancho) return cliqueEstudio(t);
   if (t.dataset.fila || t.dataset.faba || t.dataset.frede || t.dataset.facao) return cliqueFila(t);
   if (t.dataset.bib || t.dataset.bibso !== undefined || t.dataset.bibnicho !== undefined || t.dataset.bibformato !== undefined) return cliqueBib(t);
   if (t.dataset.eudia) { estado.euDia = somaDias(estado.euDia, Number(t.dataset.eudia)); if (estado.euDia > hojeISO()) estado.euDia = hojeISO(); return render(); }

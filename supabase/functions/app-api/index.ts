@@ -153,6 +153,109 @@ async function estrelaPack(b: any) {
   return { selecionado: !!b.marcar, total_selecionados: sel.size };
 }
 
+// ---------------- Afiloop › Estúdio de criação (ideia → roteiro, legenda e edição no estilo do Laura Club) ----------------
+const ESTILO_PADRAO = `Laura Club (@bylauraclub): a amiga com bom gosto que acha peças bonitas e acessíveis e mostra como combinar. Promessa: "parece caro, cabe no bolso, e você sabe exatamente como usar".
+Voz: português do Brasil, frases curtas, leve e próxima, sem gíria forçada. Pode usar 1 a 3 emojis.
+Instagram: só universo feminino (moda, bolsas, acessórios, beleza, autocuidado), paleta suave (rosa antigo, bege, off-white, dourado). Gancho de desejo e estilo. CTA: "Comenta PALAVRA que eu te mando o link no direct 💌" + "ou pega no link da bio · @bylauraclub".
+TikTok: qualquer nicho que venda. Gancho de curiosidade ou utilidade nos 3 primeiros segundos. CTA: "confere no link".
+Assinatura: "Laura indica" (nunca "achadinho"). Vídeos do pack recebem microedição autoral: gancho próprio cobrindo o texto original, corte novo, barra de progresso, card final com a palavra do CTA.
+LAURA é personagem virtual de IA: "eu combinaria", "3 looks para…"; nunca "comprei", "usei", "testei".`;
+const GANCHOS_BONS = `Ganchos fortes são concretos: preço, detalhe visível, situação ou contraste. Exemplos do Laura Club:
+"O vestido de R$59 que parece de loja cara" · "Essa bolsa custa R$60 e ninguém acredita" · "O detalhe que deixa o jeans arrumado" · "Joia embolada nunca mais" · "1, 2 ou 3? Qual você usaria?" · "Salva pra não esquecer na Black".
+Proibido em gancho: "arrase", "incrível", "inspire-se", "você precisa", "perfeito", "imperdível", "top", "maravilhoso". Até 8 palavras.`;
+const REGRAS_FIXAS = `Regras que nunca quebram:
+- Comparação só de estética ("estética parecida", "inspirado em"). Nunca "igual", "réplica", "mesma qualidade". Produto com logo, nome ou estampa de outra marca não entra: avise em "alertas".
+- Preço só se vier nos dados do produto, com a data conferida; senão escreva "preço no link".
+- Nada de escassez ou urgência falsa ("últimas unidades", "só hoje") se não vier nos dados.
+- Imagem de IA da LAURA: legenda leva "imagem ilustrativa". Afiliação: legenda termina com "posso receber comissão pelos links".
+- Não invente características do produto que não estejam nos dados; use o que dá para ver ou "confere os detalhes no link".`;
+const FORMATOS_ESTUDIO: Record<string, { tipo: string; autoria: string; desc: string }> = {
+  reels_pack: { tipo: "video", autoria: "pack", desc: "Reels/TikTok com um vídeo do pack que JÁ EXISTE (9:16, 8 a 20 s depois de editado). O roteiro diz como cortar e reordenar trechos desse vídeo e o texto por cima (por tempo: 0-3 s, 3-8 s...). Não peça para gravar modelos nem cenas novas; em 'gravar' liste só o que faltar (ex.: capa) ou deixe vazio." },
+  carrossel_laura: { tipo: "carrossel", autoria: "laura", desc: "Carrossel 4:5 da LAURA (5 a 7 slides): capa com o look mais forte, um look/peça por slide, último slide com o CTA. Roteiro por slide, com a pose e o cenário da LAURA." },
+  dupe: { tipo: "luxo_vs_achadinho", autoria: "laura", desc: "Luxo vs achadinho: slide 1 LAURA usando o achadinho, slide 2 peça de grife (foto de estúdio sem logo; marca só no texto, 'inspiração: …'), slides 3-4 detalhes e look, slide 5 CTA." },
+  meme: { tipo: "meme", autoria: "laura", desc: "Meme da LAURA (1 imagem ou 2 quadros) sobre a vida de quem ama comprar, com texto curto e legenda que puxa comentário." },
+  tiktok_rapido: { tipo: "video", autoria: "pack", desc: "TikTok rápido de utilidade/curiosidade com vídeo do pack que já existe (7 a 15 s), corte seco, texto grande na tela. Roteiro de corte, não de gravação." },
+};
+async function estiloEstudio() { return (await config<string>("estudio_estilo")) ?? ESTILO_PADRAO; }
+async function dadosItens(cods: string[], avisos: string[] = []) {
+  const out: string[] = [];
+  for (const c of cods.slice(0, 5)) {
+    const m = c.match(/^PACK-([VC])(\d+)$/) ?? c.match(/^(OFERTA)-(\d+)$/);
+    if (!m) continue;
+    if (m[1] === "OFERTA") {
+      const { data: o } = await db.from("afiloop_ofertas").select("nome, preco, preco_conferido_em, loja, nicho").eq("id", Number(m[2])).maybeSingle();
+      const conf = o?.preco_conferido_em ? String(o.preco_conferido_em).slice(0, 10) : null;
+      if (o?.preco && (!conf || conf < somaDias(hoje(), -3))) avisos.push(`${c}: preço conferido ${conf ? `em ${conf.split("-").reverse().slice(0, 2).join("/")}` : "sem data"}. Confira de novo antes de postar.`);
+      if (o) out.push(`${c}: ${o.nome}${o.preco ? ` · R$ ${Number(o.preco).toFixed(2).replace(".", ",")} (conferido em ${String(o.preco_conferido_em ?? "").slice(0, 10) || "data desconhecida"})` : ""}${o.nicho ? ` · nicho ${o.nicho}` : ""}`);
+    } else {
+      const { data: v } = await db.from(m[1] === "V" ? "afiloop_videos" : "afiloop_carrosseis").select("legenda, nicho, topico" + (m[1] === "V" ? ", duracao_s" : "")).eq("id", Number(m[2])).maybeSingle();
+      if (v) out.push(`${c}: ${m[1] === "V" ? `vídeo de ${Math.round((v as any).duracao_s ?? 0)} s` : "fotos"} do pack · nicho ${(v as any).nicho ?? "?"} · legenda do pack (sem os links): ${String((v as any).legenda ?? "").replace(/https?:\/\/\S+/g, "").slice(0, 300)}`);
+    }
+  }
+  return out;
+}
+async function gerarEstudio(b: any) {
+  const ideia = String(b.ideia ?? "").trim().slice(0, 1500);
+  if (ideia.length < 4) throw new Erro("Escreva a sua ideia.");
+  const f = FORMATOS_ESTUDIO[String(b.formato)] ?? FORMATOS_ESTUDIO.reels_pack;
+  const rede = ["instagram", "tiktok", "instagram+tiktok"].includes(b.rede) ? b.rede : "instagram+tiktok";
+  const itens = (Array.isArray(b.itens) ? b.itens : []).map((x: unknown) => String(x).trim().toUpperCase()).filter((x: string) => /^(PACK-[VC]\d+|OFERTA-\d+)$/.test(x));
+  const chave = Deno.env.get("OPENAI_API_KEY"); if (!chave) throw new Erro("Falta a chave da IA no servidor.", 500);
+  const avisos: string[] = [];
+  const produtos = await dadosItens(itens, avisos);
+  const sistema = `Você é a social media sênior do Laura Club. Escreva no estilo abaixo e devolva SÓ um JSON.\n\nESTILO:\n${await estiloEstudio()}\n\n${GANCHOS_BONS}\n\n${REGRAS_FIXAS}\n\nFORMATO PEDIDO: ${f.desc}\nREDE: ${rede}\nHoje: ${hoje()}.`;
+  const pedido = `Ideia da Juliana: ${ideia}\n\nProdutos (dados reais; use só isto):\n${produtos.length ? produtos.join("\n") : "(nenhum produto informado)"}\n\n` +
+    `JSON com: {"titulo": curto, "ganchos": [3 opções de até 8 palavras], "gancho_recomendado": 0|1|2, "por_que": 1 frase sobre o gancho recomendado, ` +
+    `"roteiro": [{"quando": "0-3 s" ou "slide 1", "cena": o que aparece/acontece, "texto_tela": texto curto ou ""}], "legenda": legenda completa com quebras de linha, CTA com a palavra escolhida (nunca o texto "PALAVRA"), aviso de comissão e hashtags (3 a 6), ` +
+    `"cta_palavra": UMA palavra em maiúsculas, "gravar": [takes, poses ou imagens a produzir], "edicao": {"texto_tela": estilo do texto, "ritmo": cortes, "audio": tipo de áudio, "capa": frase e frame da capa}, ` +
+    `"alertas": [só riscos CONCRETOS deste post: produto com logo ou estampa de marca, preço sem data, item fora do nicho do Instagram com rede Instagram; NÃO repita as regras gerais; lista vazia se não houver]}`;
+  const r = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST", headers: { Authorization: `Bearer ${chave}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: Deno.env.get("OPENAI_MODEL_CRIATIVO") ?? "gpt-5.4-mini", response_format: { type: "json_object" },
+      messages: [{ role: "system", content: sistema }, { role: "user", content: pedido }] }),
+  });
+  const j = await r.json();
+  if (!r.ok) { console.error("estudio", r.status, j?.error?.message); throw new Erro("A IA não respondeu. Tente de novo.", 502); }
+  let res: any; try { res = JSON.parse(j.choices?.[0]?.message?.content ?? "{}"); } catch { throw new Erro("A IA respondeu fora do formato. Tente de novo.", 502); }
+  const txt = (x: unknown, n = 400) => (x && typeof x === "object" ? Object.values(x as Record<string, unknown>).join(" · ") : String(x ?? "")).slice(0, n);
+  // garantias que não dependem da IA: palavra do CTA, aviso de comissão e "imagem ilustrativa" nos posts da LAURA
+  const cta = txt(res.cta_palavra, 20).toUpperCase().replace(/[^A-ZÀ-Ú0-9]/g, "") || "LINK";
+  let legenda = txt(res.legenda, 2200).replace(/\bPALAVRA\b/g, cta);
+  if (f.autoria === "laura" && !/imagem ilustrativa/i.test(legenda)) legenda += "\n\nImagem ilustrativa (criada com IA).";
+  if (!/comiss[aã]o/i.test(legenda)) legenda += "\nPosso receber comissão pelos links.";
+  return {
+    formato: Object.keys(FORMATOS_ESTUDIO).find((k) => FORMATOS_ESTUDIO[k] === f), rede, itens, produtos,
+    titulo: txt(res.titulo, 120) || ideia.slice(0, 80),
+    ganchos: (Array.isArray(res.ganchos) ? res.ganchos : []).slice(0, 3).map((g: unknown) => txt(g, 120)),
+    gancho_recomendado: [0, 1, 2].includes(res.gancho_recomendado) ? res.gancho_recomendado : 0, por_que: txt(res.por_que, 300),
+    roteiro: (Array.isArray(res.roteiro) ? res.roteiro : []).slice(0, 12).map((x: any) => ({ quando: txt(x?.quando, 30), cena: txt(x?.cena, 300), texto_tela: txt(x?.texto_tela, 160) })),
+    legenda, cta_palavra: cta,
+    gravar: (Array.isArray(res.gravar) ? res.gravar : []).slice(0, 10).map((x: unknown) => txt(x, 200)),
+    edicao: Object.fromEntries(["texto_tela", "ritmo", "audio", "capa"].map((k) => [k, txt(res.edicao?.[k], 200)])),
+    alertas: [...avisos, ...(Array.isArray(res.alertas) ? res.alertas : []).slice(0, 6).map((x: unknown) => txt(x, 200)).filter(Boolean)],
+  };
+}
+async function estudioParaFila(b: any) {
+  const f = FORMATOS_ESTUDIO[String(b.formato)]; if (!f) throw new Erro("formato inválido");
+  const titulo = String(b.titulo ?? "").trim().slice(0, 140); if (!titulo) throw new Erro("Falta o título.");
+  const rede = ["instagram", "tiktok", "instagram+tiktok"].includes(b.rede) ? b.rede : "instagram+tiktok";
+  const itens = (Array.isArray(b.itens) ? b.itens : []).map((x: unknown) => String(x).toUpperCase()).filter((x: string) => /^(PACK-[VC]\d+|OFERTA-\d+)$/.test(x));
+  const roteiro = (Array.isArray(b.roteiro) ? b.roteiro : []).slice(0, 12).map((x: any) => `${String(x?.quando ?? "").slice(0, 30)}: ${String(x?.cena ?? "").slice(0, 300)}${x?.texto_tela ? ` [tela: ${String(x.texto_tela).slice(0, 160)}]` : ""}`);
+  const ed = b.edicao ?? {};
+  const obs = [`Criado no Estúdio do app (${hoje()}). Ideia: ${String(b.ideia ?? "").slice(0, 500)}`,
+    roteiro.length ? `Roteiro: ${roteiro.join(" / ")}` : "", Array.isArray(b.gravar) && b.gravar.length ? `Gravar/produzir: ${b.gravar.slice(0, 10).map((x: unknown) => String(x).slice(0, 200)).join("; ")}` : "",
+    `Edição: texto ${String(ed.texto_tela ?? "")}; ritmo ${String(ed.ritmo ?? "")}; áudio ${String(ed.audio ?? "")}; capa ${String(ed.capa ?? "")}`,
+    b.cta_palavra ? `CTA: Comenta ${String(b.cta_palavra).slice(0, 20)}` : ""].filter(Boolean).join(" | ").slice(0, 4000);
+  const { data: dono } = await db.from("afiloop_propostas").select("usuario_id").limit(1).maybeSingle();
+  if (!dono?.usuario_id) throw new Erro("Não achei a dona da fila.", 500);
+  const { data, error } = await db.from("afiloop_propostas").insert({
+    usuario_id: dono.usuario_id, tipo: f.tipo, autoria: f.autoria, itens, titulo, rede, status: "proposta", criado_por: "estudio do app",
+    gancho: String(b.gancho ?? "").slice(0, 200) || null, legenda: String(b.legenda ?? "").slice(0, 2200) || null, observacoes: obs,
+  }).select("id").single();
+  if (error) throw new Erro(error.message, 500);
+  return { ok: true, id: data.id };
+}
+
 async function filaAfiloop() {
   const { data: ps, error } = await db.from("afiloop_propostas")
     .select("id, tipo, itens, titulo, gancho, legenda, nicho, rede, observacoes, status, agendado_para, autoria, arquivos, ajuste, aprovado_em, postado_em, criado_em, drive_url, postado_ig, postado_tt")
@@ -1506,6 +1609,15 @@ Deno.serve(async (req) => {
       case "/afiloop/biblioteca": return json(await bibliotecaPack(q));
       case "/afiloop/biblioteca/estrela": return json(await estrelaPack(b));
       case "/afiloop/fila": return json(await filaAfiloop());
+      case "/afiloop/estudio/estilo": {
+        if (req.method === "POST") {
+          const t = String(b.estilo ?? "").trim().slice(0, 4000);
+          if (t) await setConfig("estudio_estilo", t); else await db.from("app_config").delete().eq("chave", "estudio_estilo");
+        }
+        return json({ estilo: await estiloEstudio(), padrao: ESTILO_PADRAO, regras: REGRAS_FIXAS });
+      }
+      case "/afiloop/estudio/gerar": return json(await gerarEstudio(b));
+      case "/afiloop/estudio/fila": return json(await estudioParaFila(b));
       case "/afiloop/fila/acao": return json(await acaoFila(b));
       case "/afiloop/fila/editar": return json(await editarFila(b));
       case "/dia/salvar": return json(await salvarDia(b));
