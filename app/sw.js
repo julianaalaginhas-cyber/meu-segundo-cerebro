@@ -1,5 +1,5 @@
 // Service worker: guarda a "casca" do app para abrir rápido e recebe as notificações.
-const VERSAO = "sc-v18";
+const VERSAO = "sc-v19";
 const CASCA = ["./", "index.html", "app.css", "app.js", "webauthn.js", "manifest.webmanifest", "icons/icon-192.png"];
 
 self.addEventListener("install", (e) => {

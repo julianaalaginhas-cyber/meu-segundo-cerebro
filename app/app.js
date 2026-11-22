@@ -166,10 +166,21 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden && to
 // ---------------- estrutura ----------------
 function abrirApp() {
   $(".abas").classList.remove("esconder"); $(".fab").classList.remove("esconder");
+  if (lerLinkPost()) return render();
   const a = location.hash.replace("#", "");
   if (ABAS.some((x) => x.id === a)) estado.aba = a;
   render();
 }
+// link das notificações do TikTok: #afiloop/post/ID abre a ficha do post na Fila (aba Aprovados)
+function lerLinkPost() {
+  const m = location.hash.match(/^#afiloop\/post\/(\d+)/);
+  if (!m) return false;
+  estado.aba = "afiloop"; estado.afiloopParte = "fila"; filaEst.aba = "aprovado"; filaEst.sel = null; filaEst.cache = false;
+  estado.abrirPost = Number(m[1]);
+  history.replaceState(null, "", "#afiloop");
+  return true;
+}
+window.addEventListener("hashchange", () => { if (token && lerLinkPost()) render(); });
 function montarAbas() {
   const nav = $(".abas");
   nav.innerHTML = `<div class="abas-marca"><img src="icons/icon-192.png" alt="">Segundo Cérebro</div>` +
@@ -193,7 +204,15 @@ async function render() {
   const desenhar = { hoje: telaHoje, agenda: telaAgenda, afiloop: telaAfiloop, financeiro: telaFinanceiro, eu: telaEu, chat: telaChat }[estado.aba];
   if (!el.dataset.aba || el.dataset.aba !== estado.aba) el.innerHTML = `<div class="carregando">Carregando…</div>`;
   el.dataset.aba = estado.aba;
-  try { el.innerHTML = await desenhar(); if (estado.aba === "afiloop" && estado.afiloopParte === "fila") restaurarPainelFila(); }
+  try {
+    el.innerHTML = await desenhar();
+    if (estado.aba === "afiloop" && estado.afiloopParte === "fila") {
+      if (estado.abrirPost) {
+        const i = filaEst.dados?.itens.find((x) => x.id === estado.abrirPost); estado.abrirPost = null;
+        if (i) { if (i.aba !== filaEst.aba) { filaEst.aba = i.aba; filaEst.cache = true; await render(); } folhaPost(i); } else toast("Esse post não está mais na fila.");
+      } else restaurarPainelFila();
+    }
+  }
   catch (e) { el.innerHTML = topo(aba.nome) + `<main><div class="aviso">⚠️ ${esc(e.message)}</div><button class="btn sec" onclick="render()">Tentar de novo</button></main>`; }
 }
 window.render = render;
@@ -507,7 +526,7 @@ function folhaPost(i) {
   emPainel(`<div data-cheia></div><h2 style="font-size:19px;padding-right:56px">${esc(i.titulo)}</h2>
     <div class="fila-meta">${q.dia ? `<span>📅 ${fmtDia(q.dia)} · ${q.hora.replace(":", "h")}</span>` : `<span>📅 sem data</span>`}<span>${redeTxt(i.rede)}</span><span>${TIPO_POST[i.tipo] ?? "Post"}</span>${i.autoria === "laura" ? "<span>👩 LAURA</span>" : i.autoria === "pack" ? "<span>📦 pack</span>" : ""}</div>
     ${i.ajuste && i.aba === "proposta" ? `<div class="aviso-suave forte"><b>Ajuste pedido:</b> ${esc(i.ajuste)}</div>` : ""}
-    ${midia}${baixar}
+    ${midia}${vids.map((u) => `<a class="btn sec" href="${esc(u)}" target="_blank" rel="noopener" download style="display:block;text-align:center;text-decoration:none;margin-bottom:10px">⬇️ Baixar o vídeo</a>`).join("")}${baixar}
     ${drive ? `<a class="btn sec" href="${esc(drive)}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-bottom:10px">📁 Abrir os arquivos no Drive</a>` : ""}
     ${i.gancho ? `<div class="secao-titulo">Gancho</div><div class="card"><div class="bloco-txt">${esc(i.gancho)}</div></div>` : ""}
     ${i.legenda ? `<div class="secao-titulo">Legenda</div><div class="card"><div class="bloco-txt">${esc(i.legenda)}</div></div>` : ""}

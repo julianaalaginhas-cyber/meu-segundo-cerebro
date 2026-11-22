@@ -1396,6 +1396,22 @@ async function rodarNotificacoes() {
       } else if (total < base.total) await setConfig("tg_pack_aviso", { total, dia: d });
     }
   }
+  // 11) TikTok não tem agendamento: avisa na hora de cada post aprovado e, 30 min depois, se ainda não foi marcado
+  const agoraMs = Date.now();
+  const { data: tts } = await db.from("afiloop_propostas").select("id, titulo, rede, agendado_para")
+    .eq("status", "na_fila").eq("postado_tt", false)
+    .gte("agendado_para", new Date(agoraMs - 70 * 60e3).toISOString()).lte("agendado_para", new Date(agoraMs + 5 * 60e3).toISOString());
+  for (const p of tts ?? []) {
+    if (!redesDoPost(p.rede).tt) continue;
+    const ag = new Date(p.agendado_para).getTime(), dif = (agoraMs - ag) / 60e3; // minutos desde o horário
+    const hora = new Intl.DateTimeFormat("pt-BR", { timeZone: TZ, hour: "2-digit", minute: "2-digit" }).format(new Date(ag)).replace(":", "h");
+    const url = `/#afiloop/post/${p.id}`;
+    if (dif >= -5 && dif < 30) {
+      if (await umaVez(`tt:${p.id}:${p.agendado_para}`, () => enviarPush(`📱 Hora do TikTok · ${hora}`, `${p.titulo}\nToque para abrir o vídeo e a legenda.`, url, `tt-${p.id}`))) feitas.push("tiktok");
+    } else if (dif >= 30 && dif < 70) {
+      if (await umaVez(`tt2:${p.id}:${p.agendado_para}`, () => enviarPush(`⏰ Ainda dá tempo · TikTok das ${hora}`, `${p.titulo}\nPostou? Marque no app.`, url, `tt-${p.id}`))) feitas.push("tiktok2");
+    }
+  }
   // 9) sincronização parada há mais de 12 h com coisas na fila
   const s = await sincronizacao();
   const parado = s.ultima_aplicacao && Date.now() - new Date(s.ultima_aplicacao).getTime() > 12 * 3600e3;
