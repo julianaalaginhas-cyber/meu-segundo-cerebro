@@ -28,17 +28,25 @@ const FEITO = ["feita", "feito", "concluida", "concluída", "concluido", "conclu
 class Erro extends Error { constructor(msg: string, public status = 400) { super(msg); } }
 
 // ---------------- Afiloop: fila de aprovação ----------------
-// Etapa na tela: "aprovar" = ideia nova ou edição pronta esperando a Juliana; "producao" = aprovada, o Claude está fazendo;
-// "pronto" = aprovado para postar; "postado"; "descartada".
-const etapaFila = (p: any) => p.status === "proposta" ? "aprovar"
-  : p.status === "produzindo" ? ((p.arquivos?.length && !p.ajuste) ? "aprovar" : "producao")
-  : p.status === "na_fila" ? "pronto" : p.status;
+// A aprovação é feita no chat com os bots (AfiLoop/Editora). No app ficam três abas:
+// "proposta" (status proposta), "aprovado" (status na_fila, pronto para postar) e "publicado" (status postado).
+// Os outros status (produzindo, descartada) ficam ocultos e entram só na contagem "ocultos".
+const etapaFila = (p: any): "proposta" | "aprovado" | "publicado" | null =>
+  p.status === "proposta" ? "proposta" : p.status === "na_fila" ? "aprovado" : p.status === "postado" ? "publicado" : null;
+// nomes antigos das etapas, para o app que ainda usa aprovar/pronto/postado
+const etapaLegada = (e: string | null) => (({ proposta: "aprovar", aprovado: "pronto", publicado: "postado" }) as Record<string, string>)[e ?? ""] ?? null;
+function redesDoPost(rede: unknown) {
+  const x = String(rede ?? "").toLowerCase();
+  const ambos = x === "ambos" || (x.includes("insta") && x.includes("tik"));
+  return { ig: ambos || x.includes("insta"), tt: ambos || x.includes("tik") };
+}
 
 async function resumoFila() {
   try {
-    const { data } = await db.from("afiloop_propostas").select("status, arquivos, ajuste").in("status", ["proposta", "produzindo"]);
-    return { fila_para_aprovar: (data ?? []).filter((p: any) => etapaFila(p) === "aprovar").length, proximo_post: null };
-  } catch { return { fila_para_aprovar: 0, proximo_post: null }; }
+    const { data } = await db.from("afiloop_propostas").select("status").in("status", ["proposta", "na_fila"]);
+    const l = data ?? [];
+    return { propostas: l.filter((p: any) => p.status === "proposta").length, aprovados: l.filter((p: any) => p.status === "na_fila").length, proximo_post: null };
+  } catch { return { propostas: 0, aprovados: 0, proximo_post: null }; }
 }
 // ---------------- Afiloop › Biblioteca (galeria do pack) ----------------
 const codPack = (t: string, id: number) => `PACK-${t}${String(id).padStart(4, "0")}`;
@@ -123,10 +131,12 @@ async function estrelaPack(b: any) {
 
 async function filaAfiloop() {
   const { data: ps, error } = await db.from("afiloop_propostas")
-    .select("id, tipo, itens, titulo, gancho, legenda, nicho, rede, observacoes, status, agendado_para, autoria, arquivos, ajuste, aprovado_em, postado_em, criado_em")
+    .select("id, tipo, itens, titulo, gancho, legenda, nicho, rede, observacoes, status, agendado_para, autoria, arquivos, ajuste, aprovado_em, postado_em, criado_em, drive_url, postado_ig, postado_tt")
     .order("agendado_para", { ascending: true, nullsFirst: false }).order("id").limit(400);
   if (error) throw new Erro(error.message, 500);
-  const cods = [...new Set((ps ?? []).flatMap((p: any) => p.itens ?? []))] as string[];
+  const visiveis = (ps ?? []).filter((p: any) => etapaFila(p));
+  const ocultos = (ps ?? []).length - visiveis.length;
+  const cods = [...new Set(visiveis.flatMap((p: any) => p.itens ?? []))] as string[];
   const num = (pre: string) => cods.filter((c) => c.startsWith(pre)).map((c) => Number(c.slice(pre.length))).filter(Boolean);
   const [vs, cs, os] = await Promise.all([
     num("PACK-V").length ? db.from("afiloop_videos").select("id, miniatura_url, link_afiliado, duracao_s").in("id", num("PACK-V")).then((r) => r.data ?? []) : [],
@@ -137,29 +147,27 @@ async function filaAfiloop() {
   for (const v of vs as any[]) info[`PACK-V${String(v.id).padStart(4, "0")}`] = { img: v.miniatura_url, link: v.link_afiliado, seg: v.duracao_s };
   for (const c of cs as any[]) info[`PACK-C${String(c.id).padStart(4, "0")}`] = { img: c.fotos?.[0]?.url ?? null, link: c.links_afiliados?.[0]?.afiliado ?? null };
   for (const o of os as any[]) info[`OFERTA-${o.id}`] = { img: o.imagem_url, link: o.link_afiliado, nome: o.nome, preco: o.preco, conferido: o.preco_conferido_em };
-  const itens = (ps ?? []).map((p: any) => ({
-    ...p, etapa: etapaFila(p),
+  const itens = visiveis.map((p: any) => ({
+    ...p, aba: etapaFila(p), etapa: etapaLegada(etapaFila(p)),
     detalhes: (p.itens ?? []).map((c: string) => ({ codigo: c, ...(info[c] ?? {}) })),
   }));
-  const contagem: Record<string, number> = { aprovar: 0, producao: 0, pronto: 0, postado: 0, descartada: 0 };
-  for (const i of itens) contagem[i.etapa] = (contagem[i.etapa] ?? 0) + 1;
+  const contagem: Record<string, number> = { proposta: 0, aprovado: 0, publicado: 0, ocultos };
+  for (const i of itens) contagem[i.aba!]++;
+  // mesmas contagens com os nomes antigos, para o app que ainda usa aprovar/pronto/postado
+  Object.assign(contagem, { aprovar: contagem.proposta, producao: 0, pronto: contagem.aprovado, postado: contagem.publicado, descartada: 0 });
   return { itens, contagem };
 }
 
 async function acaoFila(b: any) {
+  if (b.acao === "aprovar") throw new Erro('A aprovação agora é feita só no chat com os bots (AfiLoop/Editora). Depois do seu "pode ir" lá, o post aparece em Aprovados.', 409);
   const ids = (Array.isArray(b.ids) ? b.ids : [b.id]).map(Number).filter((n: number) => Number.isInteger(n) && n > 0);
   if (!ids.length) throw new Erro("Escolha pelo menos um post.");
-  const { data: ps } = await db.from("afiloop_propostas").select("id, status, arquivos, ajuste, observacoes").in("id", ids);
+  const { data: ps } = await db.from("afiloop_propostas").select("id, status, rede, arquivos, ajuste, observacoes, postado_ig, postado_tt").in("id", ids);
   const agora = new Date().toISOString();
   let feitos = 0;
   for (const p of ps ?? []) {
     let up: Record<string, unknown> | null = null;
     switch (b.acao) {
-      case "aprovar": {
-        const e = etapaFila(p);
-        if (e === "aprovar") up = p.arquivos?.length ? { status: "na_fila", aprovado_em: agora } : { status: "produzindo", aprovado_em: agora };
-        break;
-      }
       case "ajuste": {
         const txt = String(b.texto ?? "").trim().slice(0, 1000);
         if (!txt) throw new Erro("Escreva o que quer mudar.");
@@ -168,8 +176,31 @@ async function acaoFila(b: any) {
         break;
       }
       case "descartar": if (p.status !== "postado") up = { status: "descartada" }; break;
-      case "postado": if (p.status === "na_fila") up = { status: "postado", postado_em: agora }; break;
-      case "voltar": up = { status: p.arquivos?.length ? "produzindo" : "proposta", aprovado_em: null, postado_em: null }; break;
+      case "postado": {
+        if (p.status === "na_fila") {
+          const r = redesDoPost(p.rede);
+          up = { status: "postado", postado_em: agora, postado_ig: r.ig || !!p.postado_ig, postado_tt: r.tt || !!p.postado_tt };
+        }
+        break;
+      }
+      // marca/desmarca uma rede; o post vira "postado" quando todas as redes dele estão marcadas
+      case "postado_rede": {
+        if (!["na_fila", "postado"].includes(p.status)) break;
+        const k = b.rede === "instagram" ? "postado_ig" : b.rede === "tiktok" ? "postado_tt" : null;
+        if (!k) throw new Erro("rede inválida");
+        const r = redesDoPost(p.rede);
+        if ((k === "postado_ig" && !r.ig) || (k === "postado_tt" && !r.tt)) break;
+        const f = { postado_ig: !!p.postado_ig, postado_tt: !!p.postado_tt, [k]: !!b.valor };
+        const completo = (!r.ig || f.postado_ig) && (!r.tt || f.postado_tt);
+        up = { postado_ig: f.postado_ig, postado_tt: f.postado_tt };
+        if (p.status === "na_fila" && completo) { up.status = "postado"; up.postado_em = agora; }
+        if (p.status === "postado" && !completo) { up.status = "na_fila"; up.postado_em = null; }
+        break;
+      }
+      case "desfazer_postado":
+        if (p.status === "postado") up = { status: "na_fila", postado_em: null, postado_ig: false, postado_tt: false };
+        break;
+      case "voltar": up = { status: p.arquivos?.length ? "produzindo" : "proposta", aprovado_em: null, postado_em: null, postado_ig: false, postado_tt: false }; break;
       default: throw new Erro("ação desconhecida");
     }
     if (!up) continue;
@@ -705,7 +736,7 @@ async function telaHoje() {
   return {
     hoje: h, agenda: ag.itens, atrasadas: ag.atrasadas.slice(0, 10), total_atrasadas: ag.atrasadas.length,
     financeiro: { contas: fin.contas.filter((c) => c.vencimento! <= somaDias(h, 3)) },
-    afiloop: await resumoFila(),
+    afiloop: { ...(await resumoFila()), ofertas },
     diario: { humor: d.humor, preenchido: !!(d.humor || Object.values(d.journal).some((x) => x.length)) },
     sincronizacao: sync,
   };
@@ -1119,7 +1150,7 @@ async function salvarImagem(b: any) {
 
 // ---------------- notificações ----------------
 function configurarPush() {
-  webpush.setVapidDetails("mailto:app@segundo-cerebro.invalid", Deno.env.get("APP_VAPID_PUBLIC")!, Deno.env.get("APP_VAPID_PRIVATE")!);
+  webpush.setVapidDetails("https://segundo-cerebro-woad-nine.vercel.app", Deno.env.get("APP_VAPID_PUBLIC")!, Deno.env.get("APP_VAPID_PRIVATE")!);
 }
 async function enviarPush(titulo: string, corpo: string, url = "/", tag?: string) {
   configurarPush();
@@ -1131,6 +1162,12 @@ async function enviarPush(titulo: string, corpo: string, url = "/", tag?: string
       ok++;
     } catch (e: any) {
       const st = e?.statusCode;
+      // registra o motivo da falha sem expor o endereço do aparelho
+      const raw = typeof e?.body === "string" ? e.body : "";
+      let reason: string | null = null;
+      if (raw) { try { const j = JSON.parse(raw); reason = j.reason ?? j.error ?? null; } catch { /* corpo não é JSON */ } }
+      const body = raw ? raw.replace(/https?:\/\/[^\s"'\\]+/gi, "[url]").slice(0, 300) : null;
+      console.error("push falhou", { statusCode: st ?? null, reason, body });
       if (st === 404 || st === 410 || (s.falhas ?? 0) >= 5) await db.from("app_push").delete().eq("endpoint", s.endpoint);
       else await db.from("app_push").update({ falhas: (s.falhas ?? 0) + 1 }).eq("endpoint", s.endpoint);
     }
@@ -1140,8 +1177,15 @@ async function enviarPush(titulo: string, corpo: string, url = "/", tag?: string
 async function umaVez(chave: string, fn: () => Promise<unknown>) {
   const { error } = await db.from("app_notificacoes").insert({ chave });
   if (error) return false; // já enviada
-  await fn();
-  return true;
+  // só fica marcada como enviada se a notificação chegou a pelo menos um aparelho
+  try {
+    const result = await fn();
+    if (!(typeof result === "number" && result > 0)) { await db.from("app_notificacoes").delete().eq("chave", chave); return false; }
+    return true;
+  } catch (e) {
+    await db.from("app_notificacoes").delete().eq("chave", chave);
+    throw e;
+  }
 }
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const minutos = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
@@ -1166,10 +1210,11 @@ async function rodarNotificacoes() {
         comp.length ? `${comp.length} na agenda${comp[0] ? ` (${comp[0].hora ? comp[0].hora + " " : ""}${comp[0].titulo})` : ""}` : "agenda livre",
         t.total_atrasadas ? `${t.total_atrasadas} atrasada(s)` : "",
         contas.length ? `${contas.length} conta(s) vencendo` : "",
-        t.afiloop.ofertas.length ? `${t.afiloop.ofertas.length} oferta(s) em destaque` : "",
+        t.afiloop.ofertas?.length ? `${t.afiloop.ofertas.length} oferta(s) em destaque` : "",
       ].filter(Boolean);
-      await enviarPush("☀️ Bom dia, Juliana", partes.join(" · "), "/#hoje", "resumo");
-      feitas.push("resumo");
+      const n = await enviarPush("☀️ Bom dia, Juliana", partes.join(" · "), "/#hoje", "resumo");
+      if (n) feitas.push("resumo");
+      return n;
     });
   }
   // 2) compromissos com hora: 30 min antes
@@ -1178,8 +1223,7 @@ async function rodarNotificacoes() {
     if (i.feito || !i.hora) continue;
     const ini = minutos(i.hora);
     if (min >= ini - 30 && min < ini) {
-      await umaVez(`comp:${i.caminho}:${d}`, () => enviarPush(`⏰ ${i.hora} · ${i.titulo}`, `Começa em ${ini - min} min`, "/#agenda", "comp"));
-      feitas.push("comp");
+      if (await umaVez(`comp:${i.caminho}:${d}`, () => enviarPush(`⏰ ${i.hora} · ${i.titulo}`, `Começa em ${ini - min} min`, "/#agenda", "comp"))) feitas.push("comp");
     }
   }
   // 3) tarefas do dia ainda abertas, fim da tarde (17h30)
@@ -1200,10 +1244,19 @@ async function rodarNotificacoes() {
     const preenchido = di.humor || Object.values(di.journal).some((x) => x.length);
     if (!preenchido) await umaVez(`diario:${d}`, () => enviarPush("📔 Como foi o seu dia?", "Registre o humor e escreva um pouquinho no journal.", "/#eu", "diario"));
   }
-  // 10) novidades no pack do Telegram (de 8h às 21h)
+  // 10) novidades no pack do Telegram: um resumo por dia, a partir das 18h, com o que entrou desde o último aviso
   const nov = await config<{ novos: number; desde?: string }>("tg_pack_novidades");
-  if (nov?.novos && nov.desde && min >= 8 * 60 && min <= 21 * 60) {
-    await umaVez(`pack:${nov.desde.slice(0, 13)}`, () => enviarPush("📦 Novidades no pack", `${nov.novos} vídeo(s) ou carrossel(éis) novo(s), com os links já trocados pelos seus.`, "/#afiloop", "pack"));
+  if (nov && janela(18 * 60, 180)) {
+    const total = Number(nov.novos) || 0;
+    const base = await config<{ total: number; dia: string }>("tg_pack_aviso");
+    if (!base) await setConfig("tg_pack_aviso", { total, dia: d });
+    else {
+      const novos = total >= base.total ? total - base.total : total;
+      if (novos > 0) {
+        const enviou = await umaVez(`pack:${d}`, () => enviarPush("📦 Novidades no pack hoje", `${novos} vídeo(s) ou carrossel(éis) novo(s) desde o último resumo, com os links já trocados pelos seus.`, "/#afiloop", "pack"));
+        if (enviou) { await setConfig("tg_pack_aviso", { total, dia: d }); feitas.push("pack"); }
+      } else if (total < base.total) await setConfig("tg_pack_aviso", { total, dia: d });
+    }
   }
   // 9) sincronização parada há mais de 12 h com coisas na fila
   const s = await sincronizacao();
@@ -1416,7 +1469,11 @@ Deno.serve(async (req) => {
         await db.from("app_push").upsert({ endpoint: b.assinatura.endpoint, assinatura: b.assinatura, falhas: 0 });
         return json({ ok: true });
       }
-      case "/push/testar": return json({ enviadas: await enviarPush("🔔 Notificações ligadas", "É assim que o Segundo Cérebro vai te avisar.", "/#hoje", "teste") });
+      case "/push/testar": {
+        const enviadas = await enviarPush("🔔 Notificações ligadas", "É assim que o Segundo Cérebro vai te avisar.", "/#hoje", "teste");
+        if (!enviadas) return json({ ok: false, enviadas: 0, erro: "A notificação não chegou ao aparelho. Tente de novo em instantes." }, 502);
+        return json({ ok: true, enviadas });
+      }
       case "/sair": {
         const t = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
         await db.from("app_sessoes").delete().eq("token_hash", await sha256(t));
