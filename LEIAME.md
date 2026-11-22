@@ -28,6 +28,16 @@ Obsidian (Windows/iPhone)  ──plugin "Ponte"──▶  Supabase (notas + memo
 
 - Compras parceladas: lançamento em `06 - Financeiro/` com `parcelas: N` (2–48) e `valor` total (ou `valor_parcela`) vira N notas em `Lancamentos/Parcelas`, uma por mês (`mes_fatura`; no cartão começa no mês seguinte, ou em `primeira_parcela`), e a compra ganha `parcelas_geradas: true`. O atalho 💸 Despesa ganha forma de pagamento, categorias fixas e parcelas.
 
+## App Segundo Cérebro (PWA)
+App no celular com Início, Agenda, Chat, Financeiro, Eu e a aba Afiloop (fila de aprovação de posts, ofertas). Lê e escreve pelo Supabase; o Obsidian continua sendo o arquivo oficial.
+
+| Peça | Onde | Função |
+|---|---|---|
+| App (HTML/JS, sem build) | `app/` | Publicado na Vercel (projeto `segundo-cerebro`). Ao mudar `app.js`/`app.css`, suba a `VERSAO` em `app/sw.js` |
+| `app-api` | `supabase/functions/app-api/` | API do app: login por Face ID/PIN, agenda, financeiro, diário, chat, notificações e fila do Afiloop. Usa `service_role`, por isso toda rota exige sessão do app |
+
+Publicar a API: `POST /v1/projects/<ref>/functions/deploy?slug=app-api` (Management API) com `verify_jwt: false`.
+
 ## Ferramentas MCP
 `buscar`, `ler`, `datas`, `salvar_memoria`, `criar_nota`, `editar_nota`, `atualizar_tarefa`, `mover_nota`, `excluir_nota` (2 etapas, com confirmação) , `salvar_imagem` (fotos no Vault, bucket privado) e `ver_alteracoes` — com trava de versão, backup, lixeira e histórico, e `search`/`fetch` (formato esperado pelo ChatGPT).
 

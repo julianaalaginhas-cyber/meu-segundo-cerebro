@@ -32,7 +32,7 @@ const ALLOWED_CLIENT_IDS = (Deno.env.get("ALLOWED_CLIENT_IDS") ?? "")
   .split(",").map((s) => s.trim()).filter(Boolean);
 
 const SUPPORTED_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
-const SERVER_INFO = { name: "meu-segundo-cerebro", title: "Meu Segundo Cérebro", version: "0.3.3" };
+const SERVER_INFO = { name: "meu-segundo-cerebro", title: "Meu Segundo Cérebro", version: "0.4.0" };
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -349,6 +349,68 @@ const TOOLS = [
     },
     annotations: READ_ONLY,
   },
+  // ---------- Afiloop: pack do Telegram e propostas de post (lê do Supabase, sem depender do Obsidian) ----------
+  {
+    name: "afiloop_pack",
+    title: "Afiloop: ver o pack",
+    description:
+      "Lista os vídeos e carrosséis importados do pack do Telegram do Afiloop (com os links de afiliada da Juliana já trocados, " +
+      "nicho, tópico e link público da miniatura). Cada item tem um código único (PACK-V0001 = vídeo, PACK-C0001 = carrossel). " +
+      "Use para curadoria, montar looks e propor posts. Para ver as imagens de um item, use afiloop_item.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        formato: { type: "string", enum: ["todos", "video", "carrossel"], default: "todos" },
+        nicho: { type: "string", enum: ["Fashion", "Beauty", "Casa", "Maternidade"] },
+        status: { type: "string", enum: ["novo", "todos"], default: "novo", description: "novo = ainda não usado" },
+        limite: { type: "integer", minimum: 1, maximum: 30, default: 15 },
+      },
+      additionalProperties: false,
+    },
+    annotations: READ_ONLY,
+  },
+  {
+    name: "afiloop_item",
+    title: "Afiloop: abrir um item do pack",
+    description: "Abre um item do pack pelo código (ex.: PACK-C0012): legenda original, links da Juliana, nicho e as IMAGENS (miniaturas/fotos do carrossel).",
+    inputSchema: { type: "object", properties: { codigo: { type: "string", description: "PACK-V0001 ou PACK-C0001" } }, required: ["codigo"], additionalProperties: false },
+    annotations: READ_ONLY,
+  },
+  {
+    name: "afiloop_propor",
+    title: "Afiloop: propor um post",
+    description:
+      "Registra uma proposta de post (vídeo, carrossel, look, luxo vs achadinho, meme) para o Claude produzir e a Juliana aprovar no app. " +
+      "Use os códigos dos itens do pack em 'itens'. Regras do Afiloop: comparação só de estética ('estética parecida', nunca 'igual/réplica'), " +
+      "preço só o que a loja mostra (senão 'preço no link'), imagem de IA sempre com 'imagem ilustrativa'. Nada é publicado sem a aprovação dela.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tipo: { type: "string", enum: ["video", "carrossel", "look", "luxo_vs_achadinho", "meme", "outro"] },
+        titulo: { type: "string", maxLength: 200 },
+        itens: { type: "array", items: { type: "string" }, maxItems: 20, description: "Códigos PACK-V/PACK-C usados" },
+        gancho: { type: "string", maxLength: 300 },
+        legenda: { type: "string", maxLength: 3000 },
+        nicho: { type: "string", enum: ["Fashion", "Beauty", "Casa", "Maternidade"] },
+        rede: { type: "string", enum: ["Instagram", "TikTok", "ambos"] },
+        observacoes: { type: "string", maxLength: 2000, description: "Instruções para o Claude produzir (ordem dos slides, textos, etc.)" },
+      },
+      required: ["tipo", "titulo"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+  },
+  {
+    name: "afiloop_propostas",
+    title: "Afiloop: ver propostas de post",
+    description: "Lista as propostas de post do Afiloop e o status de cada uma (proposta, produzindo, na_fila, postado, descartada).",
+    inputSchema: {
+      type: "object",
+      properties: { status: { type: "string", enum: ["abertas", "todas", "proposta", "produzindo", "na_fila", "postado", "descartada"], default: "abertas" }, limite: { type: "integer", minimum: 1, maximum: 50, default: 20 } },
+      additionalProperties: false,
+    },
+    annotations: READ_ONLY,
+  },
   // Compatibilidade com o formato "search/fetch" usado pelo ChatGPT.
   {
     name: "search",
@@ -367,6 +429,16 @@ const TOOLS = [
 ];
 
 class ToolError extends Error {}
+
+// ---------- Afiloop ----------
+const codigoPack = (t: string, id: number) => `PACK-${t}${String(id).padStart(4, "0")}`;
+function linksPack(it: any) {
+  const ls = Array.isArray(it.links_afiliados) ? it.links_afiliados.map((l: any) => l.afiliado).filter(Boolean) : [];
+  if (!ls.length && it.link_afiliado) ls.push(it.link_afiliado);
+  return ls;
+}
+function btoaBytes(b: Uint8Array) { let s = ""; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000)); return btoa(s); }
+
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.slice(0, max) : undefined);
@@ -798,6 +870,70 @@ async function callTool(auth: Auth, name: string, args: Record<string, unknown>)
         `. Confira com ver_alteracoes. pedido_id: ${p.id}`,
       );
     }
+    case "afiloop_pack": {
+      const formato = String(args.formato ?? "todos"), lim = Math.min(Math.max(Number(args.limite ?? 15) || 15, 1), 30);
+      const nicho = str(args.nicho, 20), soNovos = (args.status ?? "novo") === "novo";
+      const itens: Array<Record<string, unknown>> = [];
+      if (formato !== "carrossel") {
+        let q = auth.db.from("afiloop_videos").select("id, legenda, nicho, topico, duracao_s, link_afiliado, links_afiliados, miniatura_url, status, recebido_em").neq("status", "descartado").neq("status", "grande_demais");
+        if (nicho) q = q.eq("nicho", nicho); if (soNovos) q = q.eq("status", "novo");
+        const { data, error } = await q.order("recebido_em", { ascending: false }).limit(lim);
+        if (error) throw dbErr(error);
+        for (const v of data ?? []) itens.push({ codigo: codigoPack("V", v.id), formato: "video", nicho: v.nicho, topico: v.topico, duracao_s: v.duracao_s, status: v.status,
+          legenda: String(v.legenda ?? "").slice(0, 280), links: linksPack(v), miniatura: v.miniatura_url, recebido_em: v.recebido_em });
+      }
+      if (formato !== "video") {
+        let q = auth.db.from("afiloop_carrosseis").select("id, legenda, nicho, topico, fotos, links_afiliados, status, recebido_em").neq("status", "descartado");
+        if (nicho) q = q.eq("nicho", nicho); if (soNovos) q = q.eq("status", "novo");
+        const { data, error } = await q.order("recebido_em", { ascending: false }).limit(lim);
+        if (error) throw dbErr(error);
+        for (const c of data ?? []) itens.push({ codigo: codigoPack("C", c.id), formato: "carrossel", nicho: c.nicho, topico: c.topico, status: c.status, fotos: (c.fotos ?? []).length,
+          legenda: String(c.legenda ?? "").slice(0, 280), links: linksPack(c), miniatura: (c.fotos ?? []).find((f: any) => f.url)?.url ?? null, recebido_em: c.recebido_em });
+      }
+      itens.sort((a, b) => String(b.recebido_em).localeCompare(String(a.recebido_em)));
+      const lista = itens.slice(0, lim);
+      return text(lista.length ? JSON.stringify(lista, null, 2) : "Nenhum item do pack com esses filtros.", { itens: lista });
+    }
+    case "afiloop_item": {
+      const m = String(args.codigo ?? "").trim().toUpperCase().match(/^PACK-([VC])0*(\d+)$/);
+      if (!m) throw new ToolError("Código inválido. Use PACK-V0001 (vídeo) ou PACK-C0001 (carrossel).");
+      const tabela = m[1] === "V" ? "afiloop_videos" : "afiloop_carrosseis";
+      const { data: it, error } = await auth.db.from(tabela).select("*").eq("id", Number(m[2])).maybeSingle();
+      if (error) throw dbErr(error);
+      if (!it) throw new ToolError("Item não encontrado.");
+      const urls: string[] = m[1] === "V" ? [it.miniatura_url].filter(Boolean) : (it.fotos ?? []).map((f: any) => f.url).filter(Boolean);
+      const resumo = { codigo: codigoPack(m[1], it.id), formato: m[1] === "V" ? "video" : "carrossel", nicho: it.nicho, topico: it.topico, status: it.status,
+        legenda_original: it.legenda, links_da_juliana: linksPack(it), imagens: urls, duracao_s: it.duracao_s ?? undefined };
+      const content: Array<Record<string, unknown>> = [{ type: "text", text: JSON.stringify(resumo, null, 2) }];
+      for (const u of urls.slice(0, 6)) {
+        try {
+          const r = await fetch(u, { signal: AbortSignal.timeout(10000) });
+          const b = new Uint8Array(await r.arrayBuffer());
+          if (r.ok && b.length < 1_500_000) content.push({ type: "image", data: btoaBytes(b), mimeType: "image/jpeg" });
+        } catch { /* a URL continua no texto */ }
+      }
+      return { content, structuredContent: resumo };
+    }
+    case "afiloop_propor": {
+      const titulo = str(args.titulo, 200)?.trim();
+      if (!titulo) throw new ToolError("Informe o título da proposta.");
+      const itens = Array.isArray(args.itens) ? (args.itens as unknown[]).map((x) => String(x).trim().toUpperCase()).filter((x) => /^PACK-[VC]\d+$|^SHEIN-\d+$/.test(x)).slice(0, 20) : [];
+      const { data, error } = await auth.db.from("afiloop_propostas").insert({
+        usuario_id: auth.userId, tipo: String(args.tipo ?? "outro"), titulo, itens, gancho: str(args.gancho, 300) ?? null, legenda: str(args.legenda, 3000) ?? null,
+        nicho: str(args.nicho, 20) ?? null, rede: str(args.rede, 20) ?? null, observacoes: str(args.observacoes, 2000) ?? null, criado_por: auth.clientId ?? "mcp",
+      }).select("id").single();
+      if (error) throw dbErr(error);
+      return text(`Proposta P-${String(data.id).padStart(4, "0")} registrada ("${titulo}"). O Claude produz e ela aparece na fila de aprovação do app da Juliana. Nada foi publicado.`);
+    }
+    case "afiloop_propostas": {
+      const st = String(args.status ?? "abertas"), lim = Math.min(Math.max(Number(args.limite ?? 20) || 20, 1), 50);
+      let q = auth.db.from("afiloop_propostas").select("id, tipo, titulo, itens, gancho, nicho, rede, status, criado_em");
+      if (st === "abertas") q = q.in("status", ["proposta", "produzindo", "na_fila"]); else if (st !== "todas") q = q.eq("status", st);
+      const { data, error } = await q.order("criado_em", { ascending: false }).limit(lim);
+      if (error) throw dbErr(error);
+      const lista = (data ?? []).map((p: any) => ({ codigo: `P-${String(p.id).padStart(4, "0")}`, ...p, id: undefined }));
+      return text(lista.length ? JSON.stringify(lista, null, 2) : "Nenhuma proposta.", { propostas: lista });
+    }
     case "ver_alteracoes": {
       const limite = Math.min(Math.max(Number(args.limite ?? 10) || 10, 1), 50);
       const filtro = str(args.caminho, 300)?.trim().replace(/^\/+/, "");
@@ -885,6 +1021,10 @@ async function handleRpc(auth: Auth, msg: RpcReq) {
             "sobre a vida, pessoas, casa, família, trabalho, documentos ou ideias dela, pesquise aqui " +
             "com 'buscar' (e 'datas' para prazos) " +
             "antes de responder, e cite o título da nota usada. " +
+            "Afiloop (pack do Telegram e posts): use afiloop_pack para ver os vídeos e carrosséis importados (códigos PACK-V/PACK-C, " +
+            "com os links de afiliada da Juliana já trocados), afiloop_item para abrir um item com as imagens, afiloop_propor para " +
+            "registrar uma proposta de post para o Claude produzir, e afiloop_propostas para acompanhar. Essas ferramentas leem direto " +
+            "do Supabase (não dependem do Obsidian sincronizar). " +
             "Para MUDAR algo que já existe, nunca crie nota nova: 'buscar' → 'ler' → editar_nota (propriedades/trocar/" +
             "acrescentar), atualizar_tarefa (feita, prazo, prioridade), mover_nota ou excluir_nota. Datas em AAAA-MM-DD. " +
             "excluir_nota sempre exige perguntar à usuária e receber um 'sim' claro antes da 2ª chamada. " +
