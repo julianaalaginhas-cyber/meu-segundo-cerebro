@@ -361,6 +361,66 @@ body:has(.fila-lote) main { padding-bottom: 150px; }
 .pk-fotos img { width: 100%; border-radius: 10px; display: block; }
 .pk-linkfull { display: flex; align-items: center; gap: 8px; background: var(--card2); border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; font-size: 13px; }
 .pk-linkfull span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pk-linkfull .btn { width: auto; flex: none; padding: 6px 12px; }
 .fila-dica { color: var(--txt2); font-size: 13px; margin: 6px 4px 2px; line-height: 1.4; }
 .btn-link.perigo { color: var(--perigo); }
 .btn.rede-pub.on { --area: var(--ok); }
+
+/* ---------- celular: itens só do computador ---------- */
+.abas-marca, .abas button.fora { display: none; }
+.fila-painel { display: none; }
+
+/* ---------- computador (tela larga) ---------- */
+@media (min-width: 1024px) {
+  :root { --lateral: 232px; }
+  body { padding-bottom: 0; padding-left: var(--lateral); }
+  body.no-chat { padding-bottom: 140px; }
+
+  /* abas viram barra lateral */
+  .abas { top: 0; bottom: 0; right: auto; width: var(--lateral); flex-direction: column; justify-content: flex-start; gap: 2px;
+    padding: 18px 12px; border-top: 0; border-right: 1px solid var(--linha); background: var(--card); }
+  .abas-marca { display: flex; align-items: center; gap: 10px; font-weight: 750; font-size: 17px; padding: 4px 10px 18px; letter-spacing: -.01em; }
+  .abas-marca img { width: 30px; height: 30px; border-radius: 8px; }
+  .abas button, .abas button.fora { display: flex; flex: none; flex-direction: row; justify-content: flex-start; gap: 12px;
+    font-size: 15px; padding: 10px 12px; border-radius: 10px; }
+  .abas svg { width: 22px; height: 22px; }
+  .abas button:hover { background: var(--card2); }
+  .abas button.on { background: color-mix(in srgb, var(--c) 12%, transparent); }
+  .fab { bottom: 28px; right: 28px; }
+
+  /* conteúdo mais largo */
+  main { max-width: 1120px; padding: 8px 32px 40px; }
+  .topo { padding: 22px 32px 10px; max-width: 1120px; margin: 0 auto; }
+  .topo h1 { font-size: 30px; }
+  .chat-barra { left: var(--lateral); bottom: 0; }
+  .fila-lote { left: var(--lateral); bottom: 0; }
+  body:has(.fila-lote) main { padding-bottom: 100px; }
+
+  /* janelas que subiam de baixo viram caixas no centro */
+  .folha { left: calc(50% + var(--lateral) / 2); right: auto; bottom: auto; top: 50%; width: min(600px, calc(100vw - var(--lateral) - 64px));
+    max-height: 86dvh; border-radius: 18px; padding: 18px 24px 24px; opacity: 0; transform: translate(-50%, -46%); transition: transform .2s ease, opacity .2s ease;
+    box-shadow: 0 24px 60px rgba(0,0,0,.25); }
+  .folha.on { opacity: 1; transform: translate(-50%, -50%); }
+  .folha.cheia { min-height: 0; }
+  .folha .alca { display: none; }
+
+  /* Afiloop › Fila: lista e ficha lado a lado */
+  .fila-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 24px; align-items: start; }
+  .fila-painel { display: block; position: sticky; top: 16px; max-height: calc(100dvh - 32px); overflow-y: auto; margin-top: 22px;
+    background: var(--card); border-radius: var(--raio); box-shadow: var(--sombra); padding: 18px 20px 22px; border: 1px solid var(--linha); }
+  .fila-painel .fechar-folha { position: sticky; float: right; top: 0; }
+  .fila-painel .fila-video { max-height: 56dvh; }
+  .painel-vazio { color: var(--txt2); text-align: center; padding: 60px 12px; }
+  .fila-item:hover { background: color-mix(in srgb, var(--afiloop) 6%, transparent); }
+  .fila-item.aberto { background: color-mix(in srgb, var(--afiloop) 14%, transparent); box-shadow: inset 3px 0 0 var(--afiloop); }
+
+  /* Início: atalhos numa faixa mais baixa */
+  .atalhos-grade { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .tile { aspect-ratio: auto; min-height: 118px; }
+  .tile:hover { filter: brightness(.98); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 28%, transparent); }
+
+  /* Afiloop › Pack: grade larga */
+  .pk-grade { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+  .chips.rolar { flex-wrap: wrap; overflow: visible; margin: 2px 0 0; padding: 2px 0 4px; }
+  .segmentado { max-width: 640px; }
+}

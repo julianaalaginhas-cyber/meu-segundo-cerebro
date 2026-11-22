@@ -133,7 +133,8 @@ function abrirApp() {
 }
 function montarAbas() {
   const nav = $(".abas");
-  nav.innerHTML = ABAS.filter((a) => !a.fora).map((a) => `<button data-aba="${a.id}" style="--c:${a.cor}">${ICONE(a.ic)}<span>${a.nome}</span></button>`).join("");
+  nav.innerHTML = `<div class="abas-marca"><img src="icons/icon-192.png" alt="">Segundo Cérebro</div>` +
+    ABAS.map((a) => `<button data-aba="${a.id}" class="${a.fora ? "fora" : ""}" style="--c:${a.cor}">${ICONE(a.ic)}<span>${a.nome}</span></button>`).join("");
   nav.onclick = (e) => { const b = e.target.closest("button"); if (!b) return; estado.aba = b.dataset.aba; history.replaceState(null, "", "#" + estado.aba); render(); scrollTo(0, 0); };
   $(".fab").innerHTML = ICONE('<path d="M12 5v14M5 12h14"/>', 'stroke-width="2.4"');
   $(".fab").onclick = abrirCaptura;
@@ -153,7 +154,7 @@ async function render() {
   const desenhar = { hoje: telaHoje, agenda: telaAgenda, afiloop: telaAfiloop, financeiro: telaFinanceiro, eu: telaEu, chat: telaChat }[estado.aba];
   if (!el.dataset.aba || el.dataset.aba !== estado.aba) el.innerHTML = `<div class="carregando">Carregando…</div>`;
   el.dataset.aba = estado.aba;
-  try { el.innerHTML = await desenhar(); }
+  try { el.innerHTML = await desenhar(); if (estado.aba === "afiloop" && estado.afiloopParte === "fila") restaurarPainelFila(); }
   catch (e) { el.innerHTML = topo(aba.nome) + `<main><div class="aviso">⚠️ ${esc(e.message)}</div><button class="btn sec" onclick="render()">Tentar de novo</button></main>`; }
 }
 window.render = render;
@@ -329,7 +330,7 @@ async function telaAgenda() {
 // A aprovação é feita no chat com os bots (AfiLoop/Editora). Aqui a Juliana confere, marca o que postou e descarta.
 const ABAS_FILA = [["proposta", "Propostas"], ["aprovado", "Aprovados"], ["publicado", "Publicados"]];
 const TIPO_POST = { video: "Vídeo", carrossel: "Carrossel", look: "Look", luxo_vs_achadinho: "Dupe", meme: "Meme", outro: "Post" };
-const filaEst = { aba: "proposta", rede: "todas", sel: null, dados: null, cache: false };
+const filaEst = { aba: "proposta", rede: "todas", sel: null, dados: null, cache: false, aberto: null };
 const redeDe = (r) => { const x = String(r ?? "").toLowerCase(); return x === "ambos" || (x.includes("insta") && x.includes("tik")) ? "instagram+tiktok" : x.includes("tik") ? "tiktok" : x.includes("insta") ? "instagram" : x; };
 const redeTxt = (r) => ({ instagram: "Instagram", tiktok: "TikTok", "instagram+tiktok": "IG + TikTok" }[redeDe(r)] ?? (r || "sem rede"));
 const redesDe = (r) => { const x = redeDe(r); return [["instagram", "Instagram", "postado_ig"], ["tiktok", "TikTok", "postado_tt"]].filter(([id]) => x.includes(id)); };
@@ -355,7 +356,7 @@ function linhaFila(i) {
   if (i.aba === "publicado") tags.push(`<span class="tag ok">Publicado</span>`);
   if (i.ajuste && i.aba === "proposta") tags.push(`<span class="tag pend">Ajuste pedido</span>`);
   if (i.autoria === "laura") tags.push(`<span class="tag laura">LAURA</span>`);
-  return `<button class="fila-item${sel?.has(i.id) ? " sel" : ""}" data-fila="${i.id}">
+  return `<button class="fila-item${sel?.has(i.id) ? " sel" : ""}${filaEst.aberto === i.id ? " aberto" : ""}" data-fila="${i.id}">
     ${sel ? `<span class="marca" aria-hidden="true"></span>` : ""}
     <span class="fila-capa">${c.img ? `<img src="${esc(c.img)}" alt="" loading="lazy">` : `<span class="sem">${i.tipo === "meme" ? "😂" : i.tipo === "carrossel" ? "🖼️" : "🎬"}</span>`}
       ${c.temVideo ? `<i class="play">▶</i>` : ""}${c.n ? `<b class="qtd">${c.n}</b>` : ""}</span>
@@ -384,9 +385,11 @@ async function corpoFila() {
       ${podeSel && lista.length ? `<button class="btn-link" data-facao="selecionar">${sel ? "Cancelar" : "Selecionar"}</button>` : ""}</div>
     ${dica ? `<p class="fila-dica">${esc(dica)}</p>` : ""}
     ${sel ? `<div class="fila-selbar"><button class="btn-link" data-facao="todos">${sel.size === lista.length ? "Desmarcar todos" : "Marcar todos"}</button><span>${sel.size} selecionado(s)</span></div>` : ""}
+    <div class="fila-split"><div class="fila-lista">
     ${lista.length ? dias.map(([dia, its]) => `<div class="secao-titulo"${dia === h ? ' style="color:var(--afiloop)"' : ""}>${dia === "sem" ? "Sem data" : (dia === h ? "Hoje · " : "") + fmtDia(dia)}</div>
       <div class="card">${its.map(linhaFila).join("")}</div>`).join("") : `<div class="card"><div class="vazio">${vazio}</div></div>`}
-    ${a === "proposta" ? ocultos : ""}
+    ${a === "proposta" ? ocultos : ""}</div>
+    <aside id="fila-painel" class="fila-painel" aria-label="Post selecionado">${PAINEL_VAZIO}</aside></div>
     ${sel ? `<div class="fila-lote"><button class="btn sec" data-facao="lote-descartar" ${sel.size ? "" : "disabled"}>Descartar</button>
       ${a === "aprovado" ? `<button class="btn" data-facao="lote-postado" ${sel.size ? "" : "disabled"}>Marcar postado ${sel.size || ""}</button>` : ""}</div>` : ""}`;
 }
@@ -399,7 +402,7 @@ async function filaAcao(ids, acao) {
 }
 async function cliqueFila(t) {
   filaEst.cache = true; // abas, filtros e seleção redesenham com os dados já carregados
-  if (t.dataset.faba) { filaEst.aba = t.dataset.faba; filaEst.sel = null; return render(); }
+  if (t.dataset.faba) { filaEst.aba = t.dataset.faba; filaEst.sel = null; filaEst.aberto = null; return render(); }
   if (t.dataset.frede) { filaEst.rede = t.dataset.frede; return render(); }
   const a = t.dataset.facao;
   if (a === "selecionar") { filaEst.sel = filaEst.sel ? null : new Set(); return render(); }
@@ -419,8 +422,27 @@ async function cliqueFila(t) {
     filaEst.cache = false; return folhaPost(filaEst.dados.itens.find((i) => i.id === id));
   }
 }
+// no computador (tela larga) a ficha do post abre no painel ao lado da lista, sem janela por cima
+const telaLarga = () => matchMedia("(min-width: 1024px)").matches;
+function emPainel(html, aoAbrir) {
+  const pn = $("#fila-painel");
+  if (!pn || !telaLarga()) return folha(html, aoAbrir);
+  pn.innerHTML = `<button class="fechar-folha" aria-label="Fechar">Fechar</button>${html}`;
+  pn.scrollTop = 0;
+  const fechar = () => { filaEst.aberto = null; pn.innerHTML = PAINEL_VAZIO; marcarAberto(); };
+  pn.querySelector(".fechar-folha").onclick = fechar;
+  aoAbrir?.(pn, fechar);
+}
+const PAINEL_VAZIO = `<div class="painel-vazio">Escolha um post da lista para ver aqui.</div>`;
+function marcarAberto() { document.querySelectorAll("#app [data-fila]").forEach((b) => b.classList.toggle("aberto", Number(b.dataset.fila) === filaEst.aberto)); }
+function restaurarPainelFila() {
+  if (!telaLarga() || !filaEst.aberto) return;
+  const i = filaEst.dados?.itens.find((x) => x.id === filaEst.aberto && x.aba === filaEst.aba);
+  if (i) folhaPost(i); else filaEst.aberto = null;
+}
 function folhaPost(i) {
   if (!i) return;
+  filaEst.aberto = i.id; marcarAberto();
   const q = quando(i.agendado_para), vids = (i.arquivos ?? []).filter(ehVideo), fotos = (i.arquivos ?? []).filter(ehImagem);
   const outros = (i.arquivos ?? []).filter((u) => !ehVideo(u) && !ehImagem(u) && linkSeguro(u));
   const poster = i.detalhes?.find((d) => d.img)?.img, drive = linkSeguro(i.drive_url);
@@ -443,7 +465,7 @@ function folhaPost(i) {
     publicado: `<div class="aviso-suave">Publicado${i.postado_em ? ` em ${fmtDia(quando(i.postado_em).dia)}` : ""}: ${redes.map(([, nome, k]) => `${nome} ${i[k] ? "✓" : "—"}`).join(" · ")}</div>
       <button class="btn-link" data-p="desfazer_postado">↩️ Desfazer "postado"</button>`,
   }[i.aba] ?? "";
-  folha(`<div data-cheia></div><h2 style="font-size:19px;padding-right:56px">${esc(i.titulo)}</h2>
+  emPainel(`<div data-cheia></div><h2 style="font-size:19px;padding-right:56px">${esc(i.titulo)}</h2>
     <div class="fila-meta">${q.dia ? `<span>📅 ${fmtDia(q.dia)} · ${q.hora.replace(":", "h")}</span>` : `<span>📅 sem data</span>`}<span>${redeTxt(i.rede)}</span><span>${TIPO_POST[i.tipo] ?? "Post"}</span>${i.autoria === "laura" ? "<span>👩 LAURA</span>" : i.autoria === "pack" ? "<span>📦 pack</span>" : ""}</div>
     ${i.ajuste && i.aba === "proposta" ? `<div class="aviso-suave forte"><b>Ajuste pedido:</b> ${esc(i.ajuste)}</div>` : ""}
     ${midia}${baixar}
@@ -469,7 +491,7 @@ function folhaPost(i) {
         const corpo = { id: i.id, titulo: $("#p-titulo", f).value, gancho: $("#p-gancho", f).value, legenda: $("#p-legenda", f).value,
           dia: $("#p-dia", f).value || null, hora: $("#p-hora", f).value || null, rede: $("#p-rede", f).value };
         if (!corpo.titulo.trim()) return $("#p-titulo", f).classList.add("falta");
-        await acao(() => api("/afiloop/fila/editar", corpo), "Salvo ✓"); fechar(); return render();
+        await acao(() => api("/afiloop/fila/editar", corpo), "Salvo ✓"); if (!telaLarga()) fechar(); return render();
       }
       if (op === "descartar" && !confirm("Descartar este post?")) return;
       const extra = op === "rede" ? { rede: b.dataset.rede, valor: b.dataset.valor === "1" } : {};
@@ -478,7 +500,7 @@ function folhaPost(i) {
         const r = await acao_([i.id], op === "rede" ? "postado_rede" : op, extra);
         if (!r.feitos) { toast("Nada mudou (o status não permite)."); b.disabled = false; return; }
         toast({ rede: extra.valor ? "Marcado ✓" : "Desmarcado", postado: "Marcado como postado ✓", descartar: "Descartado", desfazer_postado: "Voltou para Aprovados" }[op] ?? "Pronto ✓");
-        fechar(); render();
+        if (!telaLarga()) fechar(); render(); // no computador o painel reabre sozinho se o post continuar nesta aba
       } catch { b.disabled = false; }
     };
   });
@@ -543,7 +565,7 @@ function folhaPack(c) {
     ${c.video ? `<video src="${esc(c.video)}" controls playsinline preload="metadata" poster="${esc(c.capa ?? "")}" style="width:100%;border-radius:12px;background:#000;margin-bottom:10px"></video>` : ""}
     <div class="pk-fotos">${c.imgs.map((u) => `<img src="${esc(u)}" alt="" loading="lazy">`).join("")}</div>
     ${c.links.length ? c.links.map((l) => `<div class="pk-linkfull"><span>${esc(l)}</span><button class="btn sec mini" data-copiar="${esc(l)}">Copiar</button></div>`).join("") : `<div class="aviso">Sem o seu link de afiliada ainda: não dá para postar.</div>`}
-    ${c.legenda ? `<p style="color:var(--txt2);font-size:13px;white-space:pre-wrap">${esc(c.legenda)}</p>` : ""}
+    ${c.legenda ? `<p style="color:var(--txt2);font-size:13px;white-space:pre-wrap">${esc(c.legenda.replace(/https?:\/\/\S+/gi, "[link do pack]"))}</p>` : ""}
     <div style="display:grid;gap:8px;margin-top:12px">
       ${c.tem_video && !c.video ? (c.telegram ? `<button class="btn" data-abrir="${esc(c.telegram)}">▶ Ver vídeo no Telegram</button>` : `<p style="color:var(--txt2);font-size:13px">O vídeo fica no Telegram (pack/Acervo); aqui aparece só a capa.</p>`) : ""}
       ${c.links[0] ? `<button class="btn sec" data-abrir="${esc(c.links[0])}">Abrir na loja</button>` : ""}
@@ -694,7 +716,9 @@ function folha(html, aoAbrir) {
   const f = document.createElement("div"); f.className = "folha" + (html.includes("data-cheia") ? " cheia" : ""); f.innerHTML = `<div class="alca"></div><button class="fechar-folha" aria-label="Fechar">Fechar</button>${html}`;
   document.body.append(fundo, f);
   requestAnimationFrame(() => { fundo.classList.add("on"); f.classList.add("on"); });
-  const fechar = () => { fundo.classList.remove("on"); f.classList.remove("on"); setTimeout(() => { fundo.remove(); f.remove(); }, 250); };
+  const esc = (e) => { if (e.key === "Escape" && f === [...document.querySelectorAll(".folha")].pop()) fechar(); };
+  const fechar = () => { document.removeEventListener("keydown", esc); fundo.classList.remove("on"); f.classList.remove("on"); setTimeout(() => { fundo.remove(); f.remove(); }, 250); };
+  document.addEventListener("keydown", esc); // no computador, Esc fecha a janela de cima
   fundo.onclick = fechar;
   f.querySelector(".fechar-folha").onclick = fechar;
   aoAbrir?.(f, fechar);
