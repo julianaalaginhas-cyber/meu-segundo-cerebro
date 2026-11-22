@@ -99,26 +99,50 @@ function agruparPack(itens: ReturnType<typeof normPack>[]) {
 }
 async function bibliotecaPack(q: (k: string) => string | null) {
   const so = q("so") ?? "novos", nicho = q("nicho"), formato = q("formato") ?? "todos", antes = q("antes");
+  if (antes && Number.isNaN(Date.parse(antes))) throw new Erro("data inválida");
   const sel = new Set((await config<string[]>("afiloop_selecao")) ?? []);
   const lim = 90;
   const ids = (pre: string) => [...sel].filter((c) => c.startsWith(pre)).map((c) => Number(c.slice(pre.length))).filter(Boolean);
-  const buscar = async (tabela: string) => {
+  // filtros comuns às duas tabelas; nicho e status são filtrados no banco, para a página vir cheia do que foi pedido
+  const base = (tabela: string) => {
     let b = db.from(tabela).select("*").neq("status", "descartado");
     if (tabela === "afiloop_videos") b = b.neq("status", "grande_demais");
+    if (nicho) b = nicho === "sem" ? b.is("nicho", null) : b.eq("nicho", nicho);
     if (so === "selecionados") b = b.in("id", ids(tabela === "afiloop_videos" ? "PACK-V" : "PACK-C").concat([0]));
-    else { if (so === "novos") b = b.eq("status", "novo"); if (antes) b = b.lt("recebido_em", antes); }
+    else if (so === "novos") b = b.eq("status", "novo");
+    return b;
+  };
+  const pagina = async (tabela: string) => {
+    let b = base(tabela);
+    if (antes && so !== "selecionados") b = b.lt("recebido_em", antes);
     const { data, error } = await b.order("recebido_em", { ascending: false }).limit(so === "selecionados" ? 300 : lim);
     if (error) throw new Erro(error.message, 500);
     return data ?? [];
   };
-  const [vs, cs] = await Promise.all([buscar("afiloop_videos"), buscar("afiloop_carrosseis")]);
-  const todos = [...vs.map((v: any) => normPack("V", v)), ...cs.map((c: any) => normPack("C", c))];
+  // a outra tabela só no intervalo de tempo da página principal (±20 s), para juntar fotos e vídeo do mesmo produto
+  const vizinhos = async (tabela: string, ref: any[]) => {
+    if (!ref.length) return [];
+    const t = ref.map((x) => Date.parse(x.recebido_em));
+    const { data, error } = await base(tabela).gte("recebido_em", new Date(Math.min(...t) - 20000).toISOString())
+      .lte("recebido_em", new Date(Math.max(...t) + 20000).toISOString()).order("recebido_em", { ascending: false }).limit(300);
+    if (error) throw new Erro(error.message, 500);
+    return data ?? [];
+  };
+  let vs: any[], cs: any[], cheias: any[][];
+  if (formato === "video") { vs = await pagina("afiloop_videos"); cs = await vizinhos("afiloop_carrosseis", vs); cheias = [vs]; }
+  else if (formato === "carrossel") { cs = await pagina("afiloop_carrosseis"); vs = await vizinhos("afiloop_videos", cs); cheias = [cs]; }
+  else { [vs, cs] = await Promise.all([pagina("afiloop_videos"), pagina("afiloop_carrosseis")]); cheias = [vs, cs]; }
+  // corte da página: o item mais recente entre os "mais antigos" das listas que vieram cheias. Nada abaixo do corte
+  // entra nesta página (entra na próxima), para nenhuma das duas tabelas pular itens.
+  const fim = (l: any[]) => l.length === lim ? l[l.length - 1].recebido_em : null;
+  const cortes = so === "selecionados" ? [] : cheias.map(fim).filter(Boolean) as string[];
+  const corte = cortes.length ? cortes.sort().pop()! : null;
+  const dentro = (x: any) => !corte || String(x.recebido_em) >= corte;
+  const todos = [...vs.filter(dentro).map((v) => normPack("V", v)), ...cs.filter(dentro).map((c) => normPack("C", c))];
   let cards = agruparPack(todos).map((c) => ({ ...c, selecionado: c.codigos.some((x) => sel.has(x)) }))
     .sort((a, b) => String(b.recebido_em).localeCompare(String(a.recebido_em)));
-  if (nicho) cards = cards.filter((c) => (nicho === "sem" ? !c.nicho : c.nicho === nicho));
   if (formato === "video") cards = cards.filter((c) => c.tem_video); else if (formato === "carrossel") cards = cards.filter((c) => !c.tem_video);
-  const maisAntigo = todos.map((x) => x.recebido_em).sort()[0];
-  return { cards, total_selecionados: sel.size, proximo: so !== "selecionados" && (vs.length === lim || cs.length === lim) ? maisAntigo : null };
+  return { cards, total_selecionados: sel.size, proximo: corte };
 }
 async function estrelaPack(b: any) {
   const cods = (Array.isArray(b.codigos) ? b.codigos : []).map((x: unknown) => String(x).toUpperCase()).filter((x: string) => /^PACK-[VC]\d+$/.test(x));

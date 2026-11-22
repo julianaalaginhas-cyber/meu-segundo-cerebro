@@ -326,20 +326,24 @@ async function telaAgenda() {
 }
 
 // ---------------- AFILOOP: fila de aprovação ----------------
-const ETAPAS_FILA = [["aprovar", "Para aprovar"], ["producao", "Em produção"], ["pronto", "Prontos"], ["postado", "Postados"], ["descartada", "Descartados"]];
+// A aprovação é feita no chat com os bots (AfiLoop/Editora). Aqui a Juliana confere, marca o que postou e descarta.
+const ABAS_FILA = [["proposta", "Propostas"], ["aprovado", "Aprovados"], ["publicado", "Publicados"]];
 const TIPO_POST = { video: "Vídeo", carrossel: "Carrossel", look: "Look", luxo_vs_achadinho: "Dupe", meme: "Meme", outro: "Post" };
-const filaEst = { etapa: "aprovar", rede: "todas", sel: null, dados: null, cache: false };
+const filaEst = { aba: "proposta", rede: "todas", sel: null, dados: null, cache: false };
 const redeDe = (r) => { const x = String(r ?? "").toLowerCase(); return x === "ambos" || (x.includes("insta") && x.includes("tik")) ? "instagram+tiktok" : x.includes("tik") ? "tiktok" : x.includes("insta") ? "instagram" : x; };
 const redeTxt = (r) => ({ instagram: "Instagram", tiktok: "TikTok", "instagram+tiktok": "IG + TikTok" }[redeDe(r)] ?? (r || "sem rede"));
+const redesDe = (r) => { const x = redeDe(r); return [["instagram", "Instagram", "postado_ig"], ["tiktok", "TikTok", "postado_tt"]].filter(([id]) => x.includes(id)); };
 const quando = (iso) => {
   if (!iso) return { dia: null, hora: null };
   const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "America/Recife", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })
     .formatToParts(new Date(iso)).map((x) => [x.type, x.value]));
   return { dia: `${p.year}-${p.month}-${p.day}`, hora: `${String(Number(p.hour) % 24).padStart(2, "0")}:${p.minute}` };
 };
-const ehVideo = (u) => /\.(mp4|mov|webm)(\?|$)/i.test(u);
+const ehVideo = (u) => /\.(mp4|mov|webm|m4v)(\?|$)/i.test(u);
+const ehImagem = (u) => /\.(jpe?g|png|webp|gif|avif)(\?|$)/i.test(u);
+const linkSeguro = (u) => /^https:\/\//i.test(String(u ?? "")) ? u : null;
 function capaPost(i) {
-  const fotos = (i.arquivos ?? []).filter((u) => !ehVideo(u));
+  const fotos = (i.arquivos ?? []).filter(ehImagem);
   const temVideo = (i.arquivos ?? []).some(ehVideo);
   const img = fotos[0] ?? i.detalhes?.find((d) => d.img)?.img ?? null;
   return { img, temVideo, n: fotos.length > 1 ? fotos.length : 0 };
@@ -347,47 +351,55 @@ function capaPost(i) {
 function linhaFila(i) {
   const c = capaPost(i), q = quando(i.agendado_para), sel = filaEst.sel;
   const tags = [];
-  if (i.ajuste) tags.push(`<span class="tag aviso">Ajuste pedido</span>`);
-  else if (i.etapa === "aprovar") tags.push(i.arquivos?.length ? `<span class="tag ok">Edição pronta</span>` : `<span class="tag">Ideia</span>`);
+  if (i.aba === "aprovado") for (const [id, , k] of redesDe(i.rede)) { const s = id === "instagram" ? "IG" : "TT"; tags.push(i[k] ? `<span class="tag ok">${s} ✓</span>` : `<span class="tag pend" title="falta postar">${s} ⏳</span>`); }
+  if (i.aba === "publicado") tags.push(`<span class="tag ok">Publicado</span>`);
+  if (i.ajuste && i.aba === "proposta") tags.push(`<span class="tag pend">Ajuste pedido</span>`);
   if (i.autoria === "laura") tags.push(`<span class="tag laura">LAURA</span>`);
   return `<button class="fila-item${sel?.has(i.id) ? " sel" : ""}" data-fila="${i.id}">
     ${sel ? `<span class="marca" aria-hidden="true"></span>` : ""}
     <span class="fila-capa">${c.img ? `<img src="${esc(c.img)}" alt="" loading="lazy">` : `<span class="sem">${i.tipo === "meme" ? "😂" : i.tipo === "carrossel" ? "🖼️" : "🎬"}</span>`}
       ${c.temVideo ? `<i class="play">▶</i>` : ""}${c.n ? `<b class="qtd">${c.n}</b>` : ""}</span>
     <span class="txt"><span class="t1">${esc(i.titulo)}</span>
-      <span class="t2">${q.hora ? q.hora.replace(":", "h") + " · " : ""}${redeTxt(i.rede)} · ${TIPO_POST[i.tipo] ?? "Post"}</span>
+      <span class="t2">${q.hora ? q.hora.replace(":", "h") + " · " : ""}${redeTxt(i.rede)} · ${TIPO_POST[i.tipo] ?? "Post"}${i.drive_url ? " · 📁" : ""}</span>
       ${tags.length ? `<span class="tags">${tags.join("")}</span>` : ""}</span></button>`;
 }
 async function corpoFila() {
   const d = filaEst.cache && filaEst.dados ? filaEst.dados : (filaEst.dados = await api("/afiloop/fila"));
   filaEst.cache = false;
-  const e = filaEst.etapa, rede = filaEst.rede;
-  const lista = d.itens.filter((i) => i.etapa === e && (rede === "todas" || redeDe(i.rede).includes(rede)));
+  const a = filaEst.aba, rede = filaEst.rede;
+  const lista = d.itens.filter((i) => i.aba === a && (rede === "todas" || redeDe(i.rede).includes(rede)));
   const porDia = new Map();
   for (const i of lista) { const k = quando(i.agendado_para).dia ?? "sem"; if (!porDia.has(k)) porDia.set(k, []); porDia.get(k).push(i); }
-  if (e === "postado" || e === "descartada") { const ks = [...porDia.keys()].reverse(); const m = new Map(ks.map((k) => [k, porDia.get(k)])); porDia.clear(); m.forEach((v, k) => porDia.set(k, v)); }
-  const h = hojeISO(), podeSel = ["aprovar", "producao", "pronto"].includes(e);
-  const vazio = { aprovar: "Nada esperando você. 🎉", producao: "Nada em produção agora.", pronto: "Nenhum post pronto para publicar.", postado: "Nada marcado como postado ainda.", descartada: "Nada descartado." }[e];
-  const sel = filaEst.sel;
-  return `<div class="chips rolar">${ETAPAS_FILA.map(([id, n]) => `<button class="chip${e === id ? " on" : ""}" data-fetapa="${id}">${n}${d.contagem[id] ? ` <b>${d.contagem[id]}</b>` : ""}</button>`).join("")}</div>
+  const dias = a === "publicado" ? [...porDia].reverse() : [...porDia];
+  const h = hojeISO(), podeSel = a !== "publicado", sel = filaEst.sel;
+  const dica = {
+    proposta: "Para aprovar ou pedir ajuste, responda no chat com os bots AfiLoop/Editora. Depois do seu \"pode ir\" lá, o post vem para Aprovados.",
+    aprovado: "Prontos para postar. Marque cada rede quando postar; com todas marcadas, o post vai para Publicados.",
+    publicado: "",
+  }[a];
+  const vazio = { proposta: "Nenhuma proposta esperando você. 🎉", aprovado: "Nada aprovado esperando para postar.", publicado: "Nada publicado ainda." }[a];
+  const ocultos = d.contagem.ocultos ? `<p class="fila-dica">${d.contagem.ocultos} post(s) em produção ou descartados não aparecem aqui.</p>` : "";
+  return `<div class="chips rolar">${ABAS_FILA.map(([id, n]) => `<button class="chip${a === id ? " on" : ""}" data-faba="${id}">${n}${d.contagem[id] ? ` <b>${d.contagem[id]}</b>` : ""}</button>`).join("")}</div>
     <div class="fila-filtros"><div class="chips">${[["todas", "Todas"], ["instagram", "Instagram"], ["tiktok", "TikTok"]].map(([id, n]) => `<button class="chip mini${rede === id ? " on" : ""}" data-frede="${id}">${n}</button>`).join("")}</div>
       ${podeSel && lista.length ? `<button class="btn-link" data-facao="selecionar">${sel ? "Cancelar" : "Selecionar"}</button>` : ""}</div>
+    ${dica ? `<p class="fila-dica">${esc(dica)}</p>` : ""}
     ${sel ? `<div class="fila-selbar"><button class="btn-link" data-facao="todos">${sel.size === lista.length ? "Desmarcar todos" : "Marcar todos"}</button><span>${sel.size} selecionado(s)</span></div>` : ""}
-    ${lista.length ? [...porDia].map(([dia, its]) => `<div class="secao-titulo"${dia === h ? ' style="color:var(--afiloop)"' : ""}>${dia === "sem" ? "Sem data" : (dia === h ? "Hoje · " : "") + fmtDia(dia)}</div>
+    ${lista.length ? dias.map(([dia, its]) => `<div class="secao-titulo"${dia === h ? ' style="color:var(--afiloop)"' : ""}>${dia === "sem" ? "Sem data" : (dia === h ? "Hoje · " : "") + fmtDia(dia)}</div>
       <div class="card">${its.map(linhaFila).join("")}</div>`).join("") : `<div class="card"><div class="vazio">${vazio}</div></div>`}
+    ${a === "proposta" ? ocultos : ""}
     ${sel ? `<div class="fila-lote"><button class="btn sec" data-facao="lote-descartar" ${sel.size ? "" : "disabled"}>Descartar</button>
-      ${e === "pronto" ? `<button class="btn" data-facao="lote-postado" ${sel.size ? "" : "disabled"}>Marcar postado</button>` : e === "aprovar" ? `<button class="btn" data-facao="lote-aprovar" ${sel.size ? "" : "disabled"}>Aprovar ${sel.size || ""}</button>` : ""}</div>` : ""}`;
-}
-async function filaAcao(ids, acao, extra = {}, msg) {
-  const r = await acao_(ids, acao, extra);
-  toast(msg ?? (r.feitos ? `Pronto ✓ (${r.feitos})` : "Nada mudou"));
-  if (r.ignorados) toast(`${r.ignorados} não mudaram (status não permite).`);
-  filaEst.sel = null; return render();
+      ${a === "aprovado" ? `<button class="btn" data-facao="lote-postado" ${sel.size ? "" : "disabled"}>Marcar postado ${sel.size || ""}</button>` : ""}</div>` : ""}`;
 }
 const acao_ = (ids, acao, extra) => api("/afiloop/fila/acao", { ids, acao, ...extra }).catch((e) => { toast(e.message); throw e; });
+async function filaAcao(ids, acao) {
+  const r = await acao_(ids, acao, {});
+  toast(r.feitos ? `Pronto ✓ (${r.feitos})` : "Nada mudou");
+  if (r.ignorados) toast(`${r.ignorados} não mudaram (o status não permite).`);
+  filaEst.sel = null; return render();
+}
 async function cliqueFila(t) {
-  filaEst.cache = true; // filtros e seleção redesenham com os dados já carregados
-  if (t.dataset.fetapa) { filaEst.etapa = t.dataset.fetapa; filaEst.sel = null; return render(); }
+  filaEst.cache = true; // abas, filtros e seleção redesenham com os dados já carregados
+  if (t.dataset.faba) { filaEst.aba = t.dataset.faba; filaEst.sel = null; return render(); }
   if (t.dataset.frede) { filaEst.rede = t.dataset.frede; return render(); }
   const a = t.dataset.facao;
   if (a === "selecionar") { filaEst.sel = filaEst.sel ? null : new Set(); return render(); }
@@ -398,6 +410,7 @@ async function cliqueFila(t) {
   if (a?.startsWith("lote-")) {
     const ids = [...filaEst.sel]; const op = a.slice(5); filaEst.cache = false;
     if (op === "descartar" && !confirm(`Descartar ${ids.length} post(s)?`)) return;
+    if (op === "postado" && !confirm(`Marcar ${ids.length} post(s) como postados em todas as redes deles?`)) return;
     return filaAcao(ids, op);
   }
   if (t.dataset.fila) {
@@ -408,49 +421,49 @@ async function cliqueFila(t) {
 }
 function folhaPost(i) {
   if (!i) return;
-  const q = quando(i.agendado_para), vids = (i.arquivos ?? []).filter(ehVideo), fotos = (i.arquivos ?? []).filter((u) => !ehVideo(u));
-  const poster = i.detalhes?.find((d) => d.img)?.img;
+  const q = quando(i.agendado_para), vids = (i.arquivos ?? []).filter(ehVideo), fotos = (i.arquivos ?? []).filter(ehImagem);
+  const outros = (i.arquivos ?? []).filter((u) => !ehVideo(u) && !ehImagem(u) && linkSeguro(u));
+  const poster = i.detalhes?.find((d) => d.img)?.img, drive = linkSeguro(i.drive_url);
   const midia = vids.length || fotos.length
     ? `${vids.map((u) => `<video class="fila-video" src="${esc(u)}" ${poster ? `poster="${esc(poster)}"` : ""} controls playsinline preload="metadata"></video>`).join("")}
        ${fotos.length ? `<div class="fila-fotos">${fotos.map((u, k) => `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="Slide ${k + 1}" loading="lazy"></a>`).join("")}</div>` : ""}`
-    : `<div class="aviso-suave">Ainda não foi editado. ${i.etapa === "aprovar" ? "Se você aprovar a ideia, o Claude produz e devolve aqui para a aprovação final." : "O Claude está produzindo."}</div>`;
+    : drive || outros.length ? "" : `<div class="aviso-suave">O arquivo editado ainda não está aqui.</div>`;
+  const baixar = outros.map((u) => `<a class="btn sec" href="${esc(u)}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-bottom:10px">⬇️ Baixar ${esc(decodeURIComponent(u.split("/").pop().split("?")[0]))}</a>`).join("");
   const produtos = (i.detalhes ?? []).map((d) => `<div class="linha-item">${d.img ? `<img class="mini-capa" src="${esc(d.img)}" alt="" loading="lazy">` : ""}
     <div class="txt"><div class="t1">${esc(d.nome ?? d.codigo)}</div><div class="t2">${d.nome ? esc(d.codigo) + " · " : ""}${d.preco ? brl(d.preco) + (d.conferido ? ` (conferido ${fmtDia(String(d.conferido).slice(0, 10))})` : "") + " · " : ""}${d.seg ? Math.round(d.seg) + "s · " : ""}${d.link ? "seu link ✓" : "<b style='color:var(--perigo)'>sem seu link</b>"}</div></div>
-    ${d.link ? `<a class="btn pequeno sec" href="${esc(d.link)}" target="_blank" rel="noopener">Abrir</a>` : ""}</div>`).join("");
-  const e = i.etapa;
+    ${linkSeguro(d.link) ? `<a class="btn pequeno sec" href="${esc(d.link)}" target="_blank" rel="noopener">Abrir</a>` : ""}</div>`).join("");
+  const redes = redesDe(i.rede);
   const botoes = {
-    aprovar: `<button class="btn" data-p="aprovar" style="--area:var(--ok)">${i.arquivos?.length ? "✅ Aprovar para postar" : "✅ Aprovar ideia"}</button>
-      <div class="dois"><button class="btn sec" data-p="ajuste">✏️ Pedir ajuste</button><button class="btn sec perigo" data-p="descartar">Descartar</button></div>`,
-    producao: `<div class="dois"><button class="btn sec" data-p="ajuste">✏️ ${i.ajuste ? "Mudar o pedido" : "Pedir ajuste"}</button><button class="btn sec perigo" data-p="descartar">Descartar</button></div>`,
-    pronto: `${i.legenda ? `<button class="btn sec" data-p="copiar">📋 Copiar legenda</button>` : ""}
-      <button class="btn" data-p="postado" style="--area:var(--afiloop)">📤 Marcar como postado</button>
-      <button class="btn-link" data-p="voltar">↩️ Voltar para aprovação</button>`,
-    postado: `<button class="btn-link" data-p="voltar">↩️ Desfazer "postado"</button>`,
-    descartada: `<button class="btn sec" data-p="voltar">↩️ Recuperar</button>`,
-  }[e] ?? "";
+    proposta: `<div class="aviso-suave">Para aprovar ou pedir ajuste, responda no chat com os bots <b>AfiLoop/Editora</b>. Depois do seu "pode ir" lá, este post aparece em Aprovados.</div>
+      <button class="btn sec perigo" data-p="descartar">Descartar</button>`,
+    aprovado: `${i.legenda ? `<button class="btn sec" data-p="copiar">📋 Copiar legenda</button>` : ""}
+      ${redes.map(([id, nome, k]) => `<button class="btn ${i[k] ? "" : "sec"} rede-pub${i[k] ? " on" : ""}" data-p="rede" data-rede="${id}" data-valor="${i[k] ? "0" : "1"}">${i[k] ? `✅ Postado no ${nome}` : `⬜ Postei no ${nome}`}</button>`).join("")}
+      ${redes.length > 1 ? `<button class="btn" data-p="postado" style="--area:var(--afiloop)">📤 Postei em todas</button>` : ""}
+      <button class="btn-link perigo" data-p="descartar">Descartar</button>`,
+    publicado: `<div class="aviso-suave">Publicado${i.postado_em ? ` em ${fmtDia(quando(i.postado_em).dia)}` : ""}: ${redes.map(([, nome, k]) => `${nome} ${i[k] ? "✓" : "—"}`).join(" · ")}</div>
+      <button class="btn-link" data-p="desfazer_postado">↩️ Desfazer "postado"</button>`,
+  }[i.aba] ?? "";
   folha(`<div data-cheia></div><h2 style="font-size:19px;padding-right:56px">${esc(i.titulo)}</h2>
     <div class="fila-meta">${q.dia ? `<span>📅 ${fmtDia(q.dia)} · ${q.hora.replace(":", "h")}</span>` : `<span>📅 sem data</span>`}<span>${redeTxt(i.rede)}</span><span>${TIPO_POST[i.tipo] ?? "Post"}</span>${i.autoria === "laura" ? "<span>👩 LAURA</span>" : i.autoria === "pack" ? "<span>📦 pack</span>" : ""}</div>
-    ${i.ajuste ? `<div class="aviso-suave forte"><b>Ajuste pedido:</b> ${esc(i.ajuste)}</div>` : ""}
-    ${midia}
+    ${i.ajuste && i.aba === "proposta" ? `<div class="aviso-suave forte"><b>Ajuste pedido:</b> ${esc(i.ajuste)}</div>` : ""}
+    ${midia}${baixar}
+    ${drive ? `<a class="btn sec" href="${esc(drive)}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-bottom:10px">📁 Abrir os arquivos no Drive</a>` : ""}
     ${i.gancho ? `<div class="secao-titulo">Gancho</div><div class="card"><div class="bloco-txt">${esc(i.gancho)}</div></div>` : ""}
     ${i.legenda ? `<div class="secao-titulo">Legenda</div><div class="card"><div class="bloco-txt">${esc(i.legenda)}</div></div>` : ""}
     ${produtos ? `<div class="secao-titulo">Produtos</div><div class="card">${produtos}</div>` : ""}
     ${i.observacoes ? `<div class="secao-titulo">Notas de produção</div><div class="card"><div class="bloco-txt peq">${esc(i.observacoes).replace(/ \| /g, "<br>")}</div></div>` : ""}
-    <details class="fila-editar"><summary>Editar texto, dia e rede</summary>
+    ${i.aba !== "publicado" ? `<details class="fila-editar"><summary>Editar texto, dia e rede</summary>
       <label class="campo"><span>Título</span><input id="p-titulo" value="${esc(i.titulo)}"></label>
       <label class="campo"><span>Gancho</span><input id="p-gancho" value="${esc(i.gancho ?? "")}"></label>
       <label class="campo"><span>Legenda</span><textarea id="p-legenda" rows="6">${esc(i.legenda ?? "")}</textarea></label>
       <div class="linha-campos"><label class="campo"><span>Dia</span><input id="p-dia" type="date" value="${esc(q.dia ?? "")}"></label>
       <label class="campo"><span>Hora</span><input id="p-hora" type="time" value="${esc(q.hora ?? "")}"></label></div>
       <label class="campo"><span>Rede</span><select id="p-rede">${[["instagram+tiktok", "Instagram + TikTok"], ["instagram", "Só Instagram"], ["tiktok", "Só TikTok"]].map(([v, n]) => `<option value="${v}" ${redeDe(i.rede) === v ? "selected" : ""}>${n}</option>`).join("")}</select></label>
-      <button class="btn sec" data-p="salvar">Salvar alterações</button></details>
-    <div id="p-ajuste" class="esconder"><label class="campo"><span>O que você quer mudar?</span><textarea id="p-ajuste-txt" placeholder="Ex.: trocar o gancho por algo de preço; cortar os 3 primeiros segundos">${esc(i.ajuste ?? "")}</textarea></label>
-      <button class="btn" data-p="enviar-ajuste" style="--area:var(--afiloop)">Enviar pedido</button></div>
+      <button class="btn sec" data-p="salvar">Salvar alterações</button></details>` : ""}
     <div class="fila-botoes">${botoes}</div>`, (f, fechar) => {
     f.onclick = async (ev) => {
       const b = ev.target.closest("[data-p]"); if (!b) return;
       const op = b.dataset.p;
-      if (op === "ajuste") { $("#p-ajuste", f).classList.remove("esconder"); $("#p-ajuste-txt", f).focus(); return; }
       if (op === "copiar") { try { await navigator.clipboard.writeText(i.legenda); toast("Legenda copiada ✓"); } catch { toast("Não deu para copiar."); } return; }
       if (op === "salvar") {
         const corpo = { id: i.id, titulo: $("#p-titulo", f).value, gancho: $("#p-gancho", f).value, legenda: $("#p-legenda", f).value,
@@ -459,12 +472,12 @@ function folhaPost(i) {
         await acao(() => api("/afiloop/fila/editar", corpo), "Salvo ✓"); fechar(); return render();
       }
       if (op === "descartar" && !confirm("Descartar este post?")) return;
-      const extra = op === "enviar-ajuste" ? { texto: $("#p-ajuste-txt", f).value } : {};
-      if (op === "enviar-ajuste" && !extra.texto.trim()) return $("#p-ajuste-txt", f).classList.add("falta");
+      const extra = op === "rede" ? { rede: b.dataset.rede, valor: b.dataset.valor === "1" } : {};
       b.disabled = true;
       try {
-        await acao_([i.id], op === "enviar-ajuste" ? "ajuste" : op, extra);
-        toast({ aprovar: i.arquivos?.length ? "Aprovado ✓ foi para Prontos" : "Aprovado ✓ o Claude vai produzir", "enviar-ajuste": "Pedido enviado ✓", descartar: "Descartado", postado: "Marcado como postado ✓", voltar: "Voltou ✓" }[op]);
+        const r = await acao_([i.id], op === "rede" ? "postado_rede" : op, extra);
+        if (!r.feitos) { toast("Nada mudou (o status não permite)."); b.disabled = false; return; }
+        toast({ rede: extra.valor ? "Marcado ✓" : "Desmarcado", postado: "Marcado como postado ✓", descartar: "Descartado", desfazer_postado: "Voltou para Aprovados" }[op] ?? "Pronto ✓");
         fechar(); render();
       } catch { b.disabled = false; }
     };
@@ -1295,7 +1308,7 @@ document.addEventListener("click", async (e) => {
   }
   if (t.dataset.mes) { estado.finMes = somaMes(estado.finMes, Number(t.dataset.mes)); return render(); }
   if (t.dataset.parte) { estado.afiloopParte = t.dataset.parte; filaEst.sel = null; return render(); }
-  if (t.dataset.fila || t.dataset.fetapa || t.dataset.frede || t.dataset.facao) return cliqueFila(t);
+  if (t.dataset.fila || t.dataset.faba || t.dataset.frede || t.dataset.facao) return cliqueFila(t);
   if (t.dataset.bib || t.dataset.bibso !== undefined || t.dataset.bibnicho !== undefined || t.dataset.bibformato !== undefined) return cliqueBib(t);
   if (t.dataset.eudia) { estado.euDia = somaDias(estado.euDia, Number(t.dataset.eudia)); if (estado.euDia > hojeISO()) estado.euDia = hojeISO(); return render(); }
   const dia = estado.aba === "eu" ? estado.euDia : hojeISO();

@@ -313,7 +313,7 @@ body.no-chat { padding-bottom: calc(150px + env(safe-area-inset-bottom)); }
 .marca { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--linha); }
 .fila-item.sel .marca { border-color: var(--afiloop); background: var(--afiloop) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center/14px no-repeat; }
 .tag.ok { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
-.tag.aviso { background: color-mix(in srgb, #f59e0b 18%, transparent); color: #d97706; }
+.tag.pend { background: color-mix(in srgb, #f59e0b 18%, transparent); color: #d97706; }
 .tag.laura { background: color-mix(in srgb, var(--eu) 15%, transparent); color: var(--eu); }
 .fila-lote { position: fixed; left: 0; right: 0; bottom: calc(64px + env(safe-area-inset-bottom)); z-index: 12; display: flex; gap: 10px; padding: 10px 16px;
   background: var(--bg); border-top: 1px solid var(--linha); --area: var(--afiloop); }
@@ -361,3 +361,6 @@ body:has(.fila-lote) main { padding-bottom: 150px; }
 .pk-fotos img { width: 100%; border-radius: 10px; display: block; }
 .pk-linkfull { display: flex; align-items: center; gap: 8px; background: var(--card2); border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; font-size: 13px; }
 .pk-linkfull span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fila-dica { color: var(--txt2); font-size: 13px; margin: 6px 4px 2px; line-height: 1.4; }
+.btn-link.perigo { color: var(--perigo); }
+.btn.rede-pub.on { --area: var(--ok); }
