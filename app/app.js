@@ -61,7 +61,14 @@ async function acao(fn, ok) {
   try { const r = await fn(); if (ok) toast(ok); return r; } catch (e) { toast(e.message); throw e; }
 }
 
-// ---------------- acesso (Face ID / PIN) ----------------
+// ---------------- acesso (Face ID / Windows Hello / PIN) ----------------
+const UA = navigator.userAgent;
+const nomeDesbloqueio = () => /Windows/i.test(UA) ? "Windows Hello" : /iPhone|iPad/i.test(UA) ? "Face ID" : /Macintosh/i.test(UA) ? "Touch ID" : /Android/i.test(UA) ? "a digital" : "o desbloqueio do aparelho";
+const nomeAparelho = () => /Windows/i.test(UA) ? "Windows Hello (computador)" : /iPhone/i.test(UA) ? "Face ID (iPhone)" : /iPad/i.test(UA) ? "iPad" : /Macintosh/i.test(UA) ? "Touch ID (Mac)" : /Android/i.test(UA) ? "Android" : "Aparelho";
+// este navegador já tem a chave cadastrada? (o iPhone já tinha antes desta marca existir)
+const temChaveAqui = () => { try { return localStorage.getItem("sc_chave") === "1" || /iPhone|iPad/i.test(UA); } catch { return false; } };
+const marcarChaveAqui = () => { try { localStorage.setItem("sc_chave", "1"); } catch {} };
+async function podeDesbloqueio() { try { return !!window.PublicKeyCredential && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable(); } catch { return false; } }
 function telaAcesso(conteudo) {
   $("#app").innerHTML = `<div class="acesso"><img class="logo" src="icons/icon-192.png" alt=""><h1>Segundo Cérebro</h1>${conteudo}</div>`;
   $(".abas").classList.add("esconder"); $(".fab").classList.add("esconder");
@@ -72,20 +79,20 @@ async function iniciar() {
   try { est = await api("/estado"); } catch { return telaAcesso(`<p>Sem conexão. Verifique a internet e abra de novo.</p>`); }
   if (!est.configurado) return telaPrimeiroAcesso();
   telaAcesso(`<p>Toque para entrar.</p><div class="caixa">
-    ${est.tem_passkey ? `<button class="btn" id="b-face" style="--area:var(--txt)">Entrar com Face ID</button>` : ""}
+    ${est.tem_passkey ? `<button class="btn" id="b-face" style="--area:var(--txt)">Entrar com ${nomeDesbloqueio()}</button>` : ""}
     <button class="btn sec" id="b-pin">Usar PIN</button><div class="erro" id="erro"></div></div>`);
   $("#b-pin").onclick = telaPin;
-  if (est.tem_passkey) { $("#b-face").onclick = entrarFace; if (!sessionStorage.getItem("sc_face_falhou")) entrarFace(); }
+  if (est.tem_passkey) { $("#b-face").onclick = entrarFace; if (temChaveAqui() && !sessionStorage.getItem("sc_face_falhou")) entrarFace(); }
 }
 async function entrarFace() {
   try {
     const op = await api("/login/opcoes", {});
     const resp = await SimpleWebAuthnBrowser.startAuthentication({ optionsJSON: op });
     const s = await api("/login/passkey", { resposta: resp });
-    guardarSessao(s.token); abrirApp();
+    marcarChaveAqui(); guardarSessao(s.token); abrirApp();
   } catch (e) {
     sessionStorage.setItem("sc_face_falhou", "1");
-    const el = $("#erro"); if (el) el.textContent = e.name === "NotAllowedError" ? "Face ID cancelado." : e.message;
+    const el = $("#erro"); if (el) el.textContent = e.name === "NotAllowedError" ? `${nomeDesbloqueio()} cancelado.` : e.message;
   }
 }
 function telaPin() {
@@ -93,11 +100,43 @@ function telaPin() {
     <button class="btn" id="b-ok" style="--area:var(--txt)">Entrar</button><button class="btn-link" id="b-volta" style="--area:var(--txt2)">Voltar</button><div class="erro" id="erro"></div></div>`);
   $("#pin").focus();
   const ir = async () => {
-    try { const s = await api("/login/pin", { pin: $("#pin").value }); guardarSessao(s.token); abrirApp(); }
+    try {
+      const s = await api("/login/pin", { pin: $("#pin").value }); guardarSessao(s.token); abrirApp();
+      if (!temChaveAqui() && await podeDesbloqueio()) setTimeout(() => folhaDesbloqueio(true), 900);
+    }
     catch (e) { $("#erro").textContent = e.message; $("#pin").value = ""; }
   };
   $("#b-ok").onclick = ir; $("#pin").onkeyup = (e) => { if (e.key === "Enter" || e.target.value.length === 6) ir(); };
   $("#b-volta").onclick = () => { sessionStorage.removeItem("sc_face_falhou"); iniciar(); };
+}
+// cadastra o desbloqueio deste aparelho (Windows Hello, Face ID, Touch ID...) para entrar sem PIN
+function folhaDesbloqueio(aposPin = false) {
+  const nome = nomeDesbloqueio();
+  folha(`<h2>Entrar sem PIN ${/Windows/i.test(UA) ? "neste computador" : "neste aparelho"}</h2>
+    <p style="color:var(--txt2);margin-top:-4px">Da próxima vez você entra com ${nome}${/Windows/i.test(UA) ? " (digital, rosto ou o desbloqueio do Windows)" : ""}. O PIN continua valendo como reserva.</p>
+    <div id="d-pin" class="esconder"><label class="campo"><span>Para confirmar, digite o seu PIN</span><input id="d-pin-in" type="password" inputmode="numeric" maxlength="6" autocomplete="off"></label></div>
+    <div class="erro" id="d-erro" style="color:var(--perigo);font-size:14px;margin:0 4px 10px"></div>
+    <button class="btn" id="d-ok" style="--area:var(--txt)">Ativar ${nome}</button>
+    ${aposPin ? `<button class="btn-link" id="d-depois" style="--area:var(--txt2);width:100%;margin-top:6px">Agora não</button>` : ""}`, (f, fechar) => {
+    let op = null;
+    const depois = $("#d-depois", f); if (depois) depois.onclick = fechar;
+    $("#d-ok", f).onclick = async () => {
+      const erro = $("#d-erro", f); erro.textContent = "";
+      try {
+        op = op ?? await api("/aparelho/opcoes", {});
+        const pin = $("#d-pin-in", f).value.trim();
+        if (op.precisa_pin && !pin) { $("#d-pin", f).classList.remove("esconder"); $("#d-pin-in", f).focus(); return; }
+        const { precisa_pin, ...opcoes } = op;
+        const resposta = await SimpleWebAuthnBrowser.startRegistration({ optionsJSON: opcoes });
+        await api("/aparelho/concluir", { resposta, pin, nome: nomeAparelho() });
+        marcarChaveAqui(); fechar(); toast(`Pronto ✓ Da próxima vez é só ${nome}.`);
+      } catch (e) {
+        op = null; // cada tentativa pede um desafio novo
+        erro.textContent = e.name === "NotAllowedError" ? `${nome} cancelado.` : e.name === "InvalidStateError" ? "Este aparelho já está cadastrado." : e.message;
+        if (e.name === "InvalidStateError") marcarChaveAqui();
+      }
+    };
+  });
 }
 function telaPrimeiroAcesso() {
   const temPasskey = !!window.PublicKeyCredential;
@@ -811,6 +850,7 @@ async function folhaAjustes() {
   folha(`<h2>Ajustes</h2><div class="card acoes-lista">
     <button data-f="notif">🔔 ${permissao === "granted" ? "Notificações ligadas · enviar teste" : "Ligar notificações"}</button>
     <button data-f="telegram">📦 Telegram do pack</button>
+    ${temChaveAqui() ? "" : `<button data-f="desbloqueio">🔓 Entrar sem PIN neste aparelho (${nomeDesbloqueio()})</button>`}
     <button data-f="tema">🌗 Tema: ${({ light: "claro", dark: "escuro" })[localStorage.getItem("sc_tema")] ?? "automático (segue o iPhone)"}</button>
     <button data-f="sair">🚪 Sair deste aparelho</button></div>
     <div class="secao-titulo">Sincronização com o Obsidian</div><div class="card pad" style="font-size:14px;line-height:1.7">
@@ -827,6 +867,7 @@ async function folhaAjustes() {
       }
       if (b.dataset.f === "notif") { await ligarNotificacoes(); fechar(); }
       if (b.dataset.f === "telegram") { fechar(); setTimeout(folhaTelegram, 260); }
+      if (b.dataset.f === "desbloqueio") { fechar(); if (await podeDesbloqueio()) setTimeout(() => folhaDesbloqueio(), 260); else toast(`Este navegador não tem ${nomeDesbloqueio()} disponível.`); }
     };
   });
 }

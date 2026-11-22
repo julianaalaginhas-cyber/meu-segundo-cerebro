@@ -333,6 +333,17 @@ async function usarDesafio(desafio: string, tipo: string) {
 const desafioDaResposta = (resp: { response?: { clientDataJSON?: string } }) =>
   JSON.parse(new TextDecoder().decode(deB64url(resp?.response?.clientDataJSON ?? ""))).challenge as string;
 
+async function conferirPin(digitado: unknown) {
+  const f = await pinBloqueado();
+  const pin = await config<{ sal: string; hash: string }>("pin");
+  if (!pin) throw new Erro("PIN não configurado.", 400);
+  if ((await hashPin(String(digitado ?? ""), pin.sal)) !== pin.hash) {
+    const n = (f.n ?? 0) + 1;
+    await setConfig("pin_falhas", n >= 5 ? { n: 0, ate: new Date(Date.now() + 15 * 60e3).toISOString() } : { n });
+    throw new Erro(n >= 5 ? "PIN incorreto. Bloqueado por 15 minutos." : "PIN incorreto.", 401);
+  }
+  await setConfig("pin_falhas", { n: 0 });
+}
 async function pinBloqueado() {
   const f = (await config<{ n: number; ate?: string }>("pin_falhas")) ?? { n: 0 };
   if (f.ate && new Date(f.ate) > new Date()) throw new Erro("Muitas tentativas. Espere 15 minutos.", 429);
@@ -1360,30 +1371,48 @@ Deno.serve(async (req) => {
       const desafio = desafioDaResposta(b.resposta);
       await usarDesafio(desafio, "login");
       const { data: c } = await db.from("app_passkeys").select("*").eq("id", b.resposta?.id).maybeSingle();
-      if (!c) throw new Erro("Face ID não reconhecido neste app.", 401);
+      if (!c) throw new Erro("Este aparelho ainda não está cadastrado. Entre com o PIN e ative o acesso sem PIN.", 401);
       const v = await verifyAuthenticationResponse({
         response: b.resposta, expectedChallenge: desafio, expectedOrigin: origin, expectedRPID: rpID, requireUserVerification: true,
         credential: { id: c.id, publicKey: deB64url(c.chave_publica), counter: Number(c.contador), transports: c.transports ?? undefined },
       });
-      if (!v.verified) throw new Erro("Face ID não confirmado.", 401);
+      if (!v.verified) throw new Erro("Não consegui confirmar a sua identidade.", 401);
       await db.from("app_passkeys").update({ contador: v.authenticationInfo.newCounter, usado_em: new Date().toISOString() }).eq("id", c.id);
       return json(await novaSessao("passkey"));
     }
     if (rota === "/login/pin") {
-      const f = await pinBloqueado();
-      const pin = await config<{ sal: string; hash: string }>("pin");
-      if (!pin) throw new Erro("PIN não configurado.", 400);
-      if ((await hashPin(String(b.pin ?? ""), pin.sal)) !== pin.hash) {
-        const n = (f.n ?? 0) + 1;
-        await setConfig("pin_falhas", n >= 5 ? { n: 0, ate: new Date(Date.now() + 15 * 60e3).toISOString() } : { n });
-        throw new Erro(n >= 5 ? "PIN incorreto. Bloqueado por 15 minutos." : "PIN incorreto.", 401);
-      }
-      await setConfig("pin_falhas", { n: 0 });
+      await conferirPin(b.pin);
       return json(await novaSessao("pin"));
     }
 
     // ---- daqui para baixo, só com sessão ----
     await exigirSessao(req);
+    // Cadastrar o desbloqueio deste aparelho. Pede o PIN de novo, a não ser que esta sessão tenha sido aberta há menos de 15 min.
+    if (rota === "/aparelho/opcoes" || rota === "/aparelho/concluir") {
+      const t = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+      const { data: sess } = await db.from("app_sessoes").select("criado_em").eq("token_hash", await sha256(t)).maybeSingle();
+      const recente = !!sess?.criado_em && Date.now() - new Date(sess.criado_em).getTime() < 15 * 60e3;
+      const { origin, rpID } = rp(req);
+      const { data: chaves } = await db.from("app_passkeys").select("id, transports");
+      if (rota === "/aparelho/opcoes") {
+        const op = await generateRegistrationOptions({
+          rpName: "Segundo Cérebro", rpID, userName: "juliana", userDisplayName: "Juliana", attestationType: "none",
+          excludeCredentials: (chaves ?? []).map((c) => ({ id: c.id, transports: c.transports ?? undefined })),
+          authenticatorSelection: { residentKey: "preferred", userVerification: "required", authenticatorAttachment: "platform" },
+        });
+        await guardarDesafio(op.challenge, "registro");
+        return json({ ...op, precisa_pin: !recente });
+      }
+      if (!recente) await conferirPin(b.pin);
+      const desafio = desafioDaResposta(b.resposta);
+      await usarDesafio(desafio, "registro");
+      const v = await verifyRegistrationResponse({ response: b.resposta, expectedChallenge: desafio, expectedOrigin: origin, expectedRPID: rpID, requireUserVerification: true });
+      if (!v.verified || !v.registrationInfo) throw new Erro("Não consegui confirmar o desbloqueio do aparelho.");
+      const c = v.registrationInfo.credential;
+      const nome = String(b.nome ?? "").replace(/[^\p{L}\p{N} ()·.,-]/gu, "").slice(0, 40) || "Aparelho";
+      await db.from("app_passkeys").insert({ id: c.id, chave_publica: b64url(c.publicKey), contador: c.counter, transports: c.transports ?? null, nome });
+      return json({ ok: true });
+    }
     switch (rota) {
       case "/hoje": return json(await telaHoje());
       case "/agenda": {

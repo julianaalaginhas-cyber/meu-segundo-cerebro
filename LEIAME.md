@@ -33,8 +33,10 @@ App no celular com Início, Agenda, Chat, Financeiro, Eu e a aba Afiloop (fila d
 
 | Peça | Onde | Função |
 |---|---|---|
-| App (HTML/JS, sem build) | `app/` | Publicado na Vercel (projeto `segundo-cerebro`). Ao mudar `app.js`/`app.css`, suba a `VERSAO` em `app/sw.js` |
+| App (HTML/JS, sem build) | `app/` — endereço oficial: https://segundo-cerebro-woad-nine.vercel.app (o login por Face ID/Windows Hello só vale nele; está em `APP_ORIGINS`) | Publicado na Vercel (projeto `segundo-cerebro`). Ao mudar `app.js`/`app.css`, suba a `VERSAO` em `app/sw.js` |
 | `app-api` | `supabase/functions/app-api/` | API do app: login por Face ID/PIN, agenda, financeiro, diário, chat, notificações e fila do Afiloop. Usa `service_role`, por isso toda rota exige sessão do app |
+
+Entrar: Face ID / Windows Hello / Touch ID (passkey do aparelho) ou PIN de reserva. Para cadastrar um aparelho novo: entrar com o PIN e aceitar "Entrar sem PIN neste aparelho" (ou Ajustes). Cadastrar pede o PIN de novo se a sessão tiver mais de 15 min.
 
 Publicar a API: `POST /v1/projects/<ref>/functions/deploy?slug=app-api` (Management API) com `verify_jwt: false`.
 
