@@ -473,7 +473,7 @@ function folhaPost(i) {
 
 // ---------------- AFILOOP ----------------
 async function telaAfiloop() {
-  const partes = [["fila", "📥 Fila"], ["calendario", "📅 Calendário"], ["ofertas", "🛒 Ofertas"], ["biblioteca", "🎬 Biblioteca"], ["resultados", "📊 Resultados"]];
+  const partes = [["fila", "📥 Fila"], ["calendario", "📅 Calendário"], ["ofertas", "🛒 Ofertas"], ["biblioteca", "🎬 Pack"], ["resultados", "📊 Resultados"]];
   let corpo = "";
   const p = estado.afiloopParte;
   if (p === "fila") {
@@ -482,16 +482,90 @@ async function telaAfiloop() {
     const o = await api("/afiloop/ofertas");
     corpo = `<div class="card">${o.length ? o.map(ofertaHtml).join("") : `<div class="vazio">Nenhuma oferta salva ainda.</div>`}</div>
       <p style="color:var(--txt2);font-size:13px;margin:10px 4px">Preços conferidos na data da busca; podem mudar. Peça ao Claude: "busca ofertas de Casa na Shopee".</p>`;
+  } else if (p === "biblioteca") {
+    corpo = await corpoBiblioteca();
   } else {
     const txt = {
       calendario: ["Calendário de posts", "Chega na etapa 3, quando o Instagram e o TikTok estiverem conectados."],
-      biblioteca: ["Biblioteca de vídeos", "Chega na etapa 2: os vídeos do pack do Telegram e da LAURA, por nicho, com o que já foi usado."],
       resultados: ["Resultados", "Chega na etapa 3: seguidores, views, comissão por loja e quanto falta para a meta."],
     }[p];
     corpo = `<div class="card"><div class="breve"><b>${txt[0]}</b>${txt[1]}</div></div>`;
   }
   return topo("Afiloop", "Instagram e TikTok") + `<main>
     <div class="segmentado">${partes.map(([id, n]) => `<button class="${p === id ? "on" : ""}" data-parte="${id}">${n}</button>`).join("")}</div>${corpo}</main>`;
+}
+
+// ---------------- Afiloop › Pack (galeria) ----------------
+const bibEst = { so: "novos", nicho: "", formato: "todos", dados: null, mais: [], proximo: null };
+const NICHOS_PACK = [["", "Todos"], ["Fashion", "Fashion"], ["Beauty", "Beauty"], ["Casa", "Casa"], ["Maternidade", "Maternidade"], ["sem", "Sem nicho"]];
+function cardPack(c) {
+  const k = esc(c.principal);
+  return `<div class="pk-card${c.selecionado ? " sel" : ""}">
+    <button class="pk-capa" data-bib="ver" data-k="${k}" aria-label="Ver ${k}">${c.capa ? `<img src="${esc(c.capa)}" alt="" loading="lazy">` : `<span class="sem">${c.tem_video ? "🎬" : "🖼️"}</span>`}
+      <span class="pk-tipo">${c.tem_video ? `▶ ${c.dur ? c.dur + "s" : "vídeo"}` : ""}${c.tem_video && c.fotos ? " + " : ""}${c.fotos ? `${c.fotos} foto${c.fotos > 1 ? "s" : ""}` : ""}</span></button>
+    <button class="pk-estrela${c.selecionado ? " on" : ""}" data-bib="estrela" data-k="${k}" aria-label="${c.selecionado ? "Tirar da seleção" : "Selecionar"}">${c.selecionado ? "★" : "☆"}</button>
+    <div class="pk-info"><div class="pk-l1"><b>${k}</b>${c.nicho ? `<span class="pk-nicho">${esc(c.nicho)}</span>` : ""}</div>
+      ${c.links.length ? `<div class="pk-link">${esc(c.links[0].replace(/^https?:\/\//, ""))}</div>
+        <div class="pk-bts"><button class="btn sec mini" data-bib="copiar" data-k="${k}">Copiar</button><button class="btn sec mini" data-bib="abrir" data-k="${k}">Abrir</button></div>`
+        : `<div class="pk-link sem">sem link ainda</div>`}</div></div>`;
+}
+async function corpoBiblioteca() {
+  const q = new URLSearchParams({ so: bibEst.so, formato: bibEst.formato }); if (bibEst.nicho) q.set("nicho", bibEst.nicho);
+  if (!bibEst.dados) { const d = await api("/afiloop/biblioteca?" + q); bibEst.dados = d; bibEst.mais = []; bibEst.proximo = d.proximo; }
+  const d = bibEst.dados, cards = [...d.cards, ...bibEst.mais];
+  return `<div class="chips rolar">${[["novos", "Novos"], ["todos", "Todos"], ["selecionados", `★ Selecionados${d.total_selecionados ? ` <b>${d.total_selecionados}</b>` : ""}`]].map(([id, n]) => `<button class="chip${bibEst.so === id ? " on" : ""}" data-bibso="${id}">${n}</button>`).join("")}</div>
+    <div class="chips rolar" style="margin-top:6px">${NICHOS_PACK.map(([id, n]) => `<button class="chip mini${bibEst.nicho === id ? " on" : ""}" data-bibnicho="${id}">${n}</button>`).join("")}
+      ${[["todos", "Tudo"], ["video", "Vídeos"], ["carrossel", "Fotos"]].map(([id, n]) => `<button class="chip mini${bibEst.formato === id ? " on" : ""}" data-bibformato="${id}">${n}</button>`).join("")}</div>
+    ${cards.length ? `<div class="pk-grade">${cards.map(cardPack).join("")}</div>` : `<div class="card"><div class="vazio">${bibEst.so === "selecionados" ? "Nada selecionado ainda. Toque na ☆ de um card." : "Nada por aqui com esses filtros."}</div></div>`}
+    ${bibEst.proximo ? `<div style="margin:14px 0"><button class="btn sec" data-bib="mais">Carregar mais antigos</button></div>` : ""}`;
+}
+const cardBib = (k) => [...(bibEst.dados?.cards ?? []), ...bibEst.mais].find((c) => c.principal === k);
+async function copiarTexto(txt) {
+  try { await navigator.clipboard.writeText(txt); toast("Link copiado ✓"); }
+  catch { prompt("Copie o link:", txt); }
+}
+function folhaPack(c) {
+  folha(`<h2>${esc(c.principal)}${c.nicho ? ` · ${esc(c.nicho)}` : ""}</h2>
+    ${c.codigos.length > 1 ? `<p style="color:var(--txt2);font-size:13px;margin:-4px 0 10px">Juntado: ${c.codigos.map(esc).join(" + ")}</p>` : ""}
+    ${c.video ? `<video src="${esc(c.video)}" controls playsinline preload="metadata" poster="${esc(c.capa ?? "")}" style="width:100%;border-radius:12px;background:#000;margin-bottom:10px"></video>` : ""}
+    <div class="pk-fotos">${c.imgs.map((u) => `<img src="${esc(u)}" alt="" loading="lazy">`).join("")}</div>
+    ${c.links.length ? c.links.map((l) => `<div class="pk-linkfull"><span>${esc(l)}</span><button class="btn sec mini" data-copiar="${esc(l)}">Copiar</button></div>`).join("") : `<div class="aviso">Sem o seu link de afiliada ainda: não dá para postar.</div>`}
+    ${c.legenda ? `<p style="color:var(--txt2);font-size:13px;white-space:pre-wrap">${esc(c.legenda)}</p>` : ""}
+    <div style="display:grid;gap:8px;margin-top:12px">
+      ${c.tem_video && !c.video ? (c.telegram ? `<button class="btn" data-abrir="${esc(c.telegram)}">▶ Ver vídeo no Telegram</button>` : `<p style="color:var(--txt2);font-size:13px">O vídeo fica no Telegram (pack/Acervo); aqui aparece só a capa.</p>`) : ""}
+      ${c.links[0] ? `<button class="btn sec" data-abrir="${esc(c.links[0])}">Abrir na loja</button>` : ""}
+      <button class="btn${c.selecionado ? " sec" : ""}" data-estrela>${c.selecionado ? "★ Tirar da seleção" : "☆ Selecionar"}</button></div>`, (f, fechar) => {
+    f.addEventListener("click", async (ev) => {
+      const b = ev.target.closest("button"); if (!b) return;
+      if (b.dataset.copiar) return copiarTexto(b.dataset.copiar);
+      if (b.dataset.abrir) return window.open(b.dataset.abrir, "_blank", "noopener");
+      if (b.hasAttribute("data-estrela")) { fechar(); return estrelaBib(c); }
+    });
+  });
+}
+async function estrelaBib(c) {
+  const marcar = !c.selecionado;
+  const r = await acao(() => api("/afiloop/biblioteca/estrela", { codigos: c.codigos, marcar }), marcar ? "Selecionado ★" : "Tirado da seleção");
+  c.selecionado = marcar; bibEst.dados.total_selecionados = r.total_selecionados;
+  if (bibEst.so === "selecionados" && !marcar) bibEst.dados.cards = bibEst.dados.cards.filter((x) => x !== c);
+  return render();
+}
+async function cliqueBib(t) {
+  const d = t.dataset;
+  if (d.bibso !== undefined) { bibEst.so = d.bibso; bibEst.dados = null; return render(); }
+  if (d.bibnicho !== undefined) { bibEst.nicho = d.bibnicho; bibEst.dados = null; return render(); }
+  if (d.bibformato !== undefined) { bibEst.formato = d.bibformato; bibEst.dados = null; return render(); }
+  if (d.bib === "mais") {
+    const q = new URLSearchParams({ so: bibEst.so, formato: bibEst.formato, antes: bibEst.proximo }); if (bibEst.nicho) q.set("nicho", bibEst.nicho);
+    const r = await acao(() => api("/afiloop/biblioteca?" + q));
+    const vistos = new Set([...bibEst.dados.cards, ...bibEst.mais].map((c) => c.principal));
+    bibEst.mais.push(...r.cards.filter((c) => !vistos.has(c.principal))); bibEst.proximo = r.proximo; return render();
+  }
+  const c = cardBib(d.k); if (!c) return;
+  if (d.bib === "ver") return folhaPack(c);
+  if (d.bib === "estrela") return estrelaBib(c);
+  if (d.bib === "copiar") return copiarTexto(c.links[0]);
+  if (d.bib === "abrir") return window.open(c.links[0], "_blank", "noopener");
 }
 
 // ---------------- FINANCEIRO ----------------
@@ -1222,6 +1296,7 @@ document.addEventListener("click", async (e) => {
   if (t.dataset.mes) { estado.finMes = somaMes(estado.finMes, Number(t.dataset.mes)); return render(); }
   if (t.dataset.parte) { estado.afiloopParte = t.dataset.parte; filaEst.sel = null; return render(); }
   if (t.dataset.fila || t.dataset.fetapa || t.dataset.frede || t.dataset.facao) return cliqueFila(t);
+  if (t.dataset.bib || t.dataset.bibso !== undefined || t.dataset.bibnicho !== undefined || t.dataset.bibformato !== undefined) return cliqueBib(t);
   if (t.dataset.eudia) { estado.euDia = somaDias(estado.euDia, Number(t.dataset.eudia)); if (estado.euDia > hojeISO()) estado.euDia = hojeISO(); return render(); }
   const dia = estado.aba === "eu" ? estado.euDia : hojeISO();
   if (t.dataset.humor) {

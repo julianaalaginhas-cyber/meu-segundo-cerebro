@@ -40,6 +40,87 @@ async function resumoFila() {
     return { fila_para_aprovar: (data ?? []).filter((p: any) => etapaFila(p) === "aprovar").length, proximo_post: null };
   } catch { return { fila_para_aprovar: 0, proximo_post: null }; }
 }
+// ---------------- Afiloop › Biblioteca (galeria do pack) ----------------
+const codPack = (t: string, id: number) => `PACK-${t}${String(id).padStart(4, "0")}`;
+function linksDoItem(it: any): string[] {
+  const ls = Array.isArray(it.links_afiliados) ? it.links_afiliados.map((l: any) => l?.afiliado).filter(Boolean) : [];
+  if (!ls.length && it.link_afiliado) ls.push(it.link_afiliado);
+  return ls;
+}
+function videoDoItem(it: any): string | null {
+  for (const v of Object.values(it)) if (typeof v === "string" && /^https?:\/\/\S+\.(mp4|mov|webm|m4v)(\?|$)/i.test(v)) return v;
+  return null;
+}
+function telegramDoItem(it: any): string | null {
+  for (const v of Object.values(it)) if (typeof v === "string" && /^https:\/\/t\.me\//.test(v)) return v;
+  const k = Object.keys(it);
+  const chat = it[k.find((x) => /^(tg_)?(chat|grupo|canal|pack)(_id)?$/.test(x)) ?? ""];
+  const msg = it[k.find((x) => /^(tg_)?(msg|mensagem|message)(_id)?$/.test(x)) ?? ""];
+  if (chat && msg && /^-?\d+$/.test(String(chat)) && /^\d+$/.test(String(msg))) return `https://t.me/c/${String(chat).replace(/^-/, "").replace(/^100(?=\d{9,})/, "")}/${msg}`;
+  return null;
+}
+function normPack(t: "V" | "C", it: any) {
+  return {
+    codigo: codPack(t, it.id), formato: t === "V" ? "video" : "carrossel", nicho: it.nicho ?? null, topico: it.topico ?? null, status: it.status,
+    recebido_em: it.recebido_em, dur: it.duracao_s ?? null, legenda: String(it.legenda ?? "").slice(0, 400),
+    imgs: t === "V" ? [it.miniatura_url].filter(Boolean) : (it.fotos ?? []).map((f: any) => f?.url).filter(Boolean),
+    links: linksDoItem(it), video: videoDoItem(it), telegram: telegramDoItem(it),
+  };
+}
+// O Telegram manda fotos e vídeo/link do mesmo produto em mensagens separadas: junta as que chegam em sequência (mesmo tópico, até 20 s) quando falta link a uma delas.
+function agruparPack(itens: ReturnType<typeof normPack>[]) {
+  const asc = [...itens].sort((a, b) => String(a.recebido_em).localeCompare(String(b.recebido_em)));
+  const grupos: (typeof asc)[] = [];
+  for (const it of asc) {
+    const g = grupos[grupos.length - 1], ult = g?.[g.length - 1];
+    const perto = ult && ult.topico === it.topico && Math.abs(Date.parse(it.recebido_em) - Date.parse(ult.recebido_em)) <= 20000;
+    const semLink = g && (!g.some((x) => x.links.length) || !it.links.length);
+    if (perto && semLink) g.push(it); else grupos.push([it]);
+  }
+  return grupos.map((g) => {
+    const p = g.find((x) => x.formato === "video") ?? g[0];
+    return {
+      codigos: g.map((x) => x.codigo), principal: p.codigo, tem_video: g.some((x) => x.formato === "video"),
+      fotos: g.filter((x) => x.formato === "carrossel").reduce((n, x) => n + x.imgs.length, 0),
+      nicho: g.find((x) => x.nicho)?.nicho ?? null, topico: p.topico, dur: p.dur, recebido_em: g[g.length - 1].recebido_em,
+      novo: g.some((x) => x.status === "novo"), legenda: g.map((x) => x.legenda).find(Boolean) ?? "",
+      capa: p.imgs[0] ?? g.flatMap((x) => x.imgs)[0] ?? null, imgs: [...new Set(g.flatMap((x) => x.imgs))],
+      links: [...new Set(g.flatMap((x) => x.links))], video: g.map((x) => x.video).find(Boolean) ?? null, telegram: g.map((x) => x.telegram).find(Boolean) ?? null,
+    };
+  });
+}
+async function bibliotecaPack(q: (k: string) => string | null) {
+  const so = q("so") ?? "novos", nicho = q("nicho"), formato = q("formato") ?? "todos", antes = q("antes");
+  const sel = new Set((await config<string[]>("afiloop_selecao")) ?? []);
+  const lim = 90;
+  const ids = (pre: string) => [...sel].filter((c) => c.startsWith(pre)).map((c) => Number(c.slice(pre.length))).filter(Boolean);
+  const buscar = async (tabela: string) => {
+    let b = db.from(tabela).select("*").neq("status", "descartado");
+    if (tabela === "afiloop_videos") b = b.neq("status", "grande_demais");
+    if (so === "selecionados") b = b.in("id", ids(tabela === "afiloop_videos" ? "PACK-V" : "PACK-C").concat([0]));
+    else { if (so === "novos") b = b.eq("status", "novo"); if (antes) b = b.lt("recebido_em", antes); }
+    const { data, error } = await b.order("recebido_em", { ascending: false }).limit(so === "selecionados" ? 300 : lim);
+    if (error) throw new Erro(error.message, 500);
+    return data ?? [];
+  };
+  const [vs, cs] = await Promise.all([buscar("afiloop_videos"), buscar("afiloop_carrosseis")]);
+  const todos = [...vs.map((v: any) => normPack("V", v)), ...cs.map((c: any) => normPack("C", c))];
+  let cards = agruparPack(todos).map((c) => ({ ...c, selecionado: c.codigos.some((x) => sel.has(x)) }))
+    .sort((a, b) => String(b.recebido_em).localeCompare(String(a.recebido_em)));
+  if (nicho) cards = cards.filter((c) => (nicho === "sem" ? !c.nicho : c.nicho === nicho));
+  if (formato === "video") cards = cards.filter((c) => c.tem_video); else if (formato === "carrossel") cards = cards.filter((c) => !c.tem_video);
+  const maisAntigo = todos.map((x) => x.recebido_em).sort()[0];
+  return { cards, total_selecionados: sel.size, proximo: so !== "selecionados" && (vs.length === lim || cs.length === lim) ? maisAntigo : null };
+}
+async function estrelaPack(b: any) {
+  const cods = (Array.isArray(b.codigos) ? b.codigos : []).map((x: unknown) => String(x).toUpperCase()).filter((x: string) => /^PACK-[VC]\d+$/.test(x));
+  if (!cods.length) throw new Erro("Item inválido.");
+  const sel = new Set((await config<string[]>("afiloop_selecao")) ?? []);
+  for (const c of cods) b.marcar ? sel.add(c) : sel.delete(c);
+  await setConfig("afiloop_selecao", [...sel]);
+  return { selecionado: !!b.marcar, total_selecionados: sel.size };
+}
+
 async function filaAfiloop() {
   const { data: ps, error } = await db.from("afiloop_propostas")
     .select("id, tipo, itens, titulo, gancho, legenda, nicho, rede, observacoes, status, agendado_para, autoria, arquivos, ajuste, aprovado_em, postado_em, criado_em")
@@ -1316,6 +1397,8 @@ Deno.serve(async (req) => {
           .neq("status", "descartada").order("comissao_valor", { ascending: false }).limit(40);
         return json(data ?? []);
       }
+      case "/afiloop/biblioteca": return json(await bibliotecaPack(q));
+      case "/afiloop/biblioteca/estrela": return json(await estrelaPack(b));
       case "/afiloop/fila": return json(await filaAfiloop());
       case "/afiloop/fila/acao": return json(await acaoFila(b));
       case "/afiloop/fila/editar": return json(await editarFila(b));
