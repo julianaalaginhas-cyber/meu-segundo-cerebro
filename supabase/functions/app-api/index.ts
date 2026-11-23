@@ -12,6 +12,8 @@ const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SE
   auth: { persistSession: false },
 });
 const ORIGEM = "app-segundo-cerebro";
+// Posts, propostas e pack do Afiloop ficam no Afiloop Studio; o Segundo Cérebro só avisa a hora de postar.
+const STUDIO = "https://afiloop.julianaa-laginhas.workers.dev";
 const TZ = "America/Recife";
 const PASTA_DIARIO = "01 - Vida/Rotina/Diário";
 const PASTA_AGENDA = "07 - Agenda";
@@ -28,13 +30,7 @@ const FEITO = ["feita", "feito", "concluida", "concluída", "concluido", "conclu
 class Erro extends Error { constructor(msg: string, public status = 400) { super(msg); } }
 
 // ---------------- Afiloop: fila de aprovação ----------------
-// A aprovação é feita no chat com os bots (AfiLoop/Editora). No app ficam três abas:
-// "proposta" (status proposta), "aprovado" (status na_fila, pronto para postar) e "publicado" (status postado).
-// Os outros status (produzindo, descartada) ficam ocultos e entram só na contagem "ocultos".
-const etapaFila = (p: any): "proposta" | "aprovado" | "publicado" | null =>
-  p.status === "proposta" ? "proposta" : p.status === "na_fila" ? "aprovado" : p.status === "postado" ? "publicado" : null;
-// nomes antigos das etapas, para o app que ainda usa aprovar/pronto/postado
-const etapaLegada = (e: string | null) => (({ proposta: "aprovar", aprovado: "pronto", publicado: "postado" }) as Record<string, string>)[e ?? ""] ?? null;
+// Aprovar, ajustar e marcar postado agora é no Afiloop Studio. Aqui ficam só o resumo do dia e o aviso da hora de postar.
 function redesDoPost(rede: unknown) {
   const x = String(rede ?? "").toLowerCase();
   const ambos = x === "ambos" || (x.includes("insta") && x.includes("tik"));
@@ -47,316 +43,6 @@ async function resumoFila() {
     const l = data ?? [];
     return { propostas: l.filter((p: any) => p.status === "proposta").length, aprovados: l.filter((p: any) => p.status === "na_fila").length, proximo_post: null };
   } catch { return { propostas: 0, aprovados: 0, proximo_post: null }; }
-}
-// ---------------- Afiloop › Biblioteca (galeria do pack) ----------------
-const codPack = (t: string, id: number) => `PACK-${t}${String(id).padStart(4, "0")}`;
-function linksDoItem(it: any): string[] {
-  const ls = Array.isArray(it.links_afiliados) ? it.links_afiliados.map((l: any) => l?.afiliado).filter(Boolean) : [];
-  if (!ls.length && it.link_afiliado) ls.push(it.link_afiliado);
-  return ls;
-}
-function videoDoItem(it: any): string | null {
-  for (const v of Object.values(it)) if (typeof v === "string" && /^https?:\/\/\S+\.(mp4|mov|webm|m4v)(\?|$)/i.test(v)) return v;
-  return null;
-}
-function telegramDoItem(it: any): string | null {
-  for (const v of Object.values(it)) if (typeof v === "string" && /^https:\/\/t\.me\//.test(v)) return v;
-  const k = Object.keys(it);
-  const chat = it[k.find((x) => /^(tg_)?(chat|grupo|canal|pack)(_id)?$/.test(x)) ?? ""];
-  const msg = it[k.find((x) => /^(tg_)?(msg|mensagem|message)(_id)?$/.test(x)) ?? ""];
-  if (chat && msg && /^-?\d+$/.test(String(chat)) && /^\d+$/.test(String(msg))) return `https://t.me/c/${String(chat).replace(/^-/, "").replace(/^100(?=\d{9,})/, "")}/${msg}`;
-  return null;
-}
-function normPack(t: "V" | "C", it: any) {
-  return {
-    codigo: codPack(t, it.id), formato: t === "V" ? "video" : "carrossel", nicho: it.nicho ?? null, topico: it.topico ?? null, status: it.status,
-    recebido_em: it.recebido_em, dur: it.duracao_s ?? null, legenda: String(it.legenda ?? "").slice(0, 400),
-    imgs: t === "V" ? [it.miniatura_url].filter(Boolean) : (it.fotos ?? []).map((f: any) => f?.url).filter(Boolean),
-    links: linksDoItem(it), video: videoDoItem(it), telegram: telegramDoItem(it),
-  };
-}
-// O Telegram manda fotos e vídeo/link do mesmo produto em mensagens separadas: junta as que chegam em sequência (mesmo tópico, até 20 s) quando falta link a uma delas.
-function agruparPack(itens: ReturnType<typeof normPack>[]) {
-  const asc = [...itens].sort((a, b) => String(a.recebido_em).localeCompare(String(b.recebido_em)));
-  const grupos: (typeof asc)[] = [];
-  for (const it of asc) {
-    const g = grupos[grupos.length - 1], ult = g?.[g.length - 1];
-    const perto = ult && ult.topico === it.topico && Math.abs(Date.parse(it.recebido_em) - Date.parse(ult.recebido_em)) <= 20000;
-    const semLink = g && (!g.some((x) => x.links.length) || !it.links.length);
-    if (perto && semLink) g.push(it); else grupos.push([it]);
-  }
-  return grupos.map((g) => {
-    const p = g.find((x) => x.formato === "video") ?? g[0];
-    return {
-      codigos: g.map((x) => x.codigo), principal: p.codigo, tem_video: g.some((x) => x.formato === "video"),
-      fotos: g.filter((x) => x.formato === "carrossel").reduce((n, x) => n + x.imgs.length, 0),
-      nicho: g.find((x) => x.nicho)?.nicho ?? null, topico: p.topico, dur: p.dur, recebido_em: g[g.length - 1].recebido_em,
-      novo: g.some((x) => x.status === "novo"), legenda: g.map((x) => x.legenda).find(Boolean) ?? "",
-      capa: p.imgs[0] ?? g.flatMap((x) => x.imgs)[0] ?? null, imgs: [...new Set(g.flatMap((x) => x.imgs))],
-      links: [...new Set(g.flatMap((x) => x.links))], video: g.map((x) => x.video).find(Boolean) ?? null, telegram: g.map((x) => x.telegram).find(Boolean) ?? null,
-    };
-  });
-}
-async function bibliotecaPack(q: (k: string) => string | null) {
-  const so = q("so") ?? "novos", nicho = q("nicho"), formato = q("formato") ?? "todos", antes = q("antes");
-  if (antes && Number.isNaN(Date.parse(antes))) throw new Erro("data inválida");
-  const sel = new Set((await config<string[]>("afiloop_selecao")) ?? []);
-  const lim = 90;
-  const ids = (pre: string) => [...sel].filter((c) => c.startsWith(pre)).map((c) => Number(c.slice(pre.length))).filter(Boolean);
-  // filtros comuns às duas tabelas; nicho e status são filtrados no banco, para a página vir cheia do que foi pedido
-  const base = (tabela: string) => {
-    let b = db.from(tabela).select("*").neq("status", "descartado");
-    if (tabela === "afiloop_videos") b = b.neq("status", "grande_demais");
-    if (nicho) b = nicho === "sem" ? b.is("nicho", null) : b.eq("nicho", nicho);
-    if (so === "selecionados") b = b.in("id", ids(tabela === "afiloop_videos" ? "PACK-V" : "PACK-C").concat([0]));
-    else if (so === "novos") b = b.eq("status", "novo");
-    return b;
-  };
-  const pagina = async (tabela: string) => {
-    let b = base(tabela);
-    if (antes && so !== "selecionados") b = b.lt("recebido_em", antes);
-    const { data, error } = await b.order("recebido_em", { ascending: false }).limit(so === "selecionados" ? 300 : lim);
-    if (error) throw new Erro(error.message, 500);
-    return data ?? [];
-  };
-  // a outra tabela só no intervalo de tempo da página principal (±20 s), para juntar fotos e vídeo do mesmo produto
-  const vizinhos = async (tabela: string, ref: any[]) => {
-    if (!ref.length) return [];
-    const t = ref.map((x) => Date.parse(x.recebido_em));
-    const { data, error } = await base(tabela).gte("recebido_em", new Date(Math.min(...t) - 20000).toISOString())
-      .lte("recebido_em", new Date(Math.max(...t) + 20000).toISOString()).order("recebido_em", { ascending: false }).limit(300);
-    if (error) throw new Erro(error.message, 500);
-    return data ?? [];
-  };
-  let vs: any[], cs: any[], cheias: any[][];
-  if (formato === "video") { vs = await pagina("afiloop_videos"); cs = await vizinhos("afiloop_carrosseis", vs); cheias = [vs]; }
-  else if (formato === "carrossel") { cs = await pagina("afiloop_carrosseis"); vs = await vizinhos("afiloop_videos", cs); cheias = [cs]; }
-  else { [vs, cs] = await Promise.all([pagina("afiloop_videos"), pagina("afiloop_carrosseis")]); cheias = [vs, cs]; }
-  // corte da página: o item mais recente entre os "mais antigos" das listas que vieram cheias. Nada abaixo do corte
-  // entra nesta página (entra na próxima), para nenhuma das duas tabelas pular itens.
-  const fim = (l: any[]) => l.length === lim ? l[l.length - 1].recebido_em : null;
-  const cortes = so === "selecionados" ? [] : cheias.map(fim).filter(Boolean) as string[];
-  const corte = cortes.length ? cortes.sort().pop()! : null;
-  const dentro = (x: any) => !corte || String(x.recebido_em) >= corte;
-  const todos = [...vs.filter(dentro).map((v) => normPack("V", v)), ...cs.filter(dentro).map((c) => normPack("C", c))];
-  let cards = agruparPack(todos).map((c) => ({ ...c, selecionado: c.codigos.some((x) => sel.has(x)) }))
-    .sort((a, b) => String(b.recebido_em).localeCompare(String(a.recebido_em)));
-  if (formato === "video") cards = cards.filter((c) => c.tem_video); else if (formato === "carrossel") cards = cards.filter((c) => !c.tem_video);
-  return { cards, total_selecionados: sel.size, proximo: corte };
-}
-async function estrelaPack(b: any) {
-  const cods = (Array.isArray(b.codigos) ? b.codigos : []).map((x: unknown) => String(x).toUpperCase()).filter((x: string) => /^PACK-[VC]\d+$/.test(x));
-  if (!cods.length) throw new Erro("Item inválido.");
-  const sel = new Set((await config<string[]>("afiloop_selecao")) ?? []);
-  for (const c of cods) b.marcar ? sel.add(c) : sel.delete(c);
-  await setConfig("afiloop_selecao", [...sel]);
-  return { selecionado: !!b.marcar, total_selecionados: sel.size };
-}
-
-// ---------------- Afiloop › Estúdio de criação (ideia → roteiro, legenda e edição no estilo do Laura Club) ----------------
-const ESTILO_PADRAO = `Laura Club (@bylauraclub): a amiga com bom gosto que acha peças bonitas e acessíveis e mostra como combinar. Promessa: "parece caro, cabe no bolso, e você sabe exatamente como usar".
-Voz: português do Brasil, frases curtas, leve e próxima, sem gíria forçada. Pode usar 1 a 3 emojis.
-Instagram: só universo feminino (moda, bolsas, acessórios, beleza, autocuidado), paleta suave (rosa antigo, bege, off-white, dourado). Gancho de desejo e estilo. CTA: "Comenta PALAVRA que eu te mando o link no direct 💌" + "ou pega no link da bio · @bylauraclub".
-TikTok: qualquer nicho que venda. Gancho de curiosidade ou utilidade nos 3 primeiros segundos. CTA: "confere no link".
-Assinatura: "Laura indica" (nunca "achadinho"). Vídeos do pack recebem microedição autoral: gancho próprio cobrindo o texto original, corte novo, barra de progresso, card final com a palavra do CTA.
-LAURA é personagem virtual de IA: "eu combinaria", "3 looks para…"; nunca "comprei", "usei", "testei".`;
-const GANCHOS_BONS = `Ganchos fortes são concretos: preço, detalhe visível, situação ou contraste. Exemplos do Laura Club:
-"O vestido de R$59 que parece de loja cara" · "Essa bolsa custa R$60 e ninguém acredita" · "O detalhe que deixa o jeans arrumado" · "Joia embolada nunca mais" · "1, 2 ou 3? Qual você usaria?" · "Salva pra não esquecer na Black".
-Proibido em gancho: "arrase", "incrível", "inspire-se", "você precisa", "perfeito", "imperdível", "top", "maravilhoso". Até 8 palavras.`;
-const REGRAS_FIXAS = `Regras que nunca quebram:
-- Comparação só de estética ("estética parecida", "inspirado em"). Nunca "igual", "réplica", "mesma qualidade". Produto com logo, nome ou estampa de outra marca não entra: avise em "alertas".
-- Preço só se vier nos dados do produto, com a data conferida; senão escreva "preço no link".
-- Nada de escassez ou urgência falsa ("últimas unidades", "só hoje") se não vier nos dados.
-- Imagem de IA da LAURA: legenda leva "imagem ilustrativa". Afiliação: legenda termina com "posso receber comissão pelos links".
-- Não invente características do produto que não estejam nos dados; use o que dá para ver ou "confere os detalhes no link".`;
-const FORMATOS_ESTUDIO: Record<string, { tipo: string; autoria: string; desc: string }> = {
-  reels_pack: { tipo: "video", autoria: "pack", desc: "Reels/TikTok com um vídeo do pack que JÁ EXISTE (9:16, 8 a 20 s depois de editado). O roteiro diz como cortar e reordenar trechos desse vídeo e o texto por cima (por tempo: 0-3 s, 3-8 s...). Não peça para gravar modelos nem cenas novas; em 'gravar' liste só o que faltar (ex.: capa) ou deixe vazio." },
-  carrossel_laura: { tipo: "carrossel", autoria: "laura", desc: "Carrossel 4:5 da LAURA (5 a 7 slides): capa com o look mais forte, um look/peça por slide, último slide com o CTA. Roteiro por slide, com a pose e o cenário da LAURA." },
-  dupe: { tipo: "luxo_vs_achadinho", autoria: "laura", desc: "Luxo vs achadinho: slide 1 LAURA usando o achadinho, slide 2 peça de grife (foto de estúdio sem logo; marca só no texto, 'inspiração: …'), slides 3-4 detalhes e look, slide 5 CTA." },
-  meme: { tipo: "meme", autoria: "laura", desc: "Meme da LAURA (1 imagem ou 2 quadros) sobre a vida de quem ama comprar, com texto curto e legenda que puxa comentário." },
-  tiktok_rapido: { tipo: "video", autoria: "pack", desc: "TikTok rápido de utilidade/curiosidade com vídeo do pack que já existe (7 a 15 s), corte seco, texto grande na tela. Roteiro de corte, não de gravação." },
-};
-async function estiloEstudio() { return (await config<string>("estudio_estilo")) ?? ESTILO_PADRAO; }
-async function dadosItens(cods: string[], avisos: string[] = []) {
-  const out: string[] = [];
-  for (const c of cods.slice(0, 5)) {
-    const m = c.match(/^PACK-([VC])(\d+)$/) ?? c.match(/^(OFERTA)-(\d+)$/);
-    if (!m) continue;
-    if (m[1] === "OFERTA") {
-      const { data: o } = await db.from("afiloop_ofertas").select("nome, preco, preco_conferido_em, loja, nicho").eq("id", Number(m[2])).maybeSingle();
-      const conf = o?.preco_conferido_em ? String(o.preco_conferido_em).slice(0, 10) : null;
-      if (o?.preco && (!conf || conf < somaDias(hoje(), -3))) avisos.push(`${c}: preço conferido ${conf ? `em ${conf.split("-").reverse().slice(0, 2).join("/")}` : "sem data"}. Confira de novo antes de postar.`);
-      if (o) out.push(`${c}: ${o.nome}${o.preco ? ` · R$ ${Number(o.preco).toFixed(2).replace(".", ",")} (conferido em ${String(o.preco_conferido_em ?? "").slice(0, 10) || "data desconhecida"})` : ""}${o.nicho ? ` · nicho ${o.nicho}` : ""}`);
-    } else {
-      const { data: v } = await db.from(m[1] === "V" ? "afiloop_videos" : "afiloop_carrosseis").select("legenda, nicho, topico" + (m[1] === "V" ? ", duracao_s" : "")).eq("id", Number(m[2])).maybeSingle();
-      if (v) out.push(`${c}: ${m[1] === "V" ? `vídeo de ${Math.round((v as any).duracao_s ?? 0)} s` : "fotos"} do pack · nicho ${(v as any).nicho ?? "?"} · legenda do pack (sem os links): ${String((v as any).legenda ?? "").replace(/https?:\/\/\S+/g, "").slice(0, 300)}`);
-    }
-  }
-  return out;
-}
-async function gerarEstudio(b: any) {
-  const ideia = String(b.ideia ?? "").trim().slice(0, 1500);
-  if (ideia.length < 4) throw new Erro("Escreva a sua ideia.");
-  const f = FORMATOS_ESTUDIO[String(b.formato)] ?? FORMATOS_ESTUDIO.reels_pack;
-  const rede = ["instagram", "tiktok", "instagram+tiktok"].includes(b.rede) ? b.rede : "instagram+tiktok";
-  const itens = (Array.isArray(b.itens) ? b.itens : []).map((x: unknown) => String(x).trim().toUpperCase()).filter((x: string) => /^(PACK-[VC]\d+|OFERTA-\d+)$/.test(x));
-  const chave = Deno.env.get("OPENAI_API_KEY"); if (!chave) throw new Erro("Falta a chave da IA no servidor.", 500);
-  const avisos: string[] = [];
-  const produtos = await dadosItens(itens, avisos);
-  const sistema = `Você é a social media sênior do Laura Club. Escreva no estilo abaixo e devolva SÓ um JSON.\n\nESTILO:\n${await estiloEstudio()}\n\n${GANCHOS_BONS}\n\n${REGRAS_FIXAS}\n\nFORMATO PEDIDO: ${f.desc}\nREDE: ${rede}\nHoje: ${hoje()}.`;
-  const pedido = `Ideia da Juliana: ${ideia}\n\nProdutos (dados reais; use só isto):\n${produtos.length ? produtos.join("\n") : "(nenhum produto informado)"}\n\n` +
-    `JSON com: {"titulo": curto, "ganchos": [3 opções de até 8 palavras], "gancho_recomendado": 0|1|2, "por_que": 1 frase sobre o gancho recomendado, ` +
-    `"roteiro": [{"quando": "0-3 s" ou "slide 1", "cena": o que aparece/acontece, "texto_tela": texto curto ou ""}], "legenda": legenda completa com quebras de linha, CTA com a palavra escolhida (nunca o texto "PALAVRA"), aviso de comissão e hashtags (3 a 6), ` +
-    `"cta_palavra": UMA palavra em maiúsculas, "gravar": [takes, poses ou imagens a produzir], "edicao": {"texto_tela": estilo do texto, "ritmo": cortes, "audio": tipo de áudio, "capa": frase e frame da capa}, ` +
-    `"alertas": [só riscos CONCRETOS deste post: produto com logo ou estampa de marca, preço sem data, item fora do nicho do Instagram com rede Instagram; NÃO repita as regras gerais; lista vazia se não houver]}`;
-  const r = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST", headers: { Authorization: `Bearer ${chave}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: Deno.env.get("OPENAI_MODEL_CRIATIVO") ?? "gpt-5.4-mini", response_format: { type: "json_object" },
-      messages: [{ role: "system", content: sistema }, { role: "user", content: pedido }] }),
-  });
-  const j = await r.json();
-  if (!r.ok) { console.error("estudio", r.status, j?.error?.message); throw new Erro("A IA não respondeu. Tente de novo.", 502); }
-  let res: any; try { res = JSON.parse(j.choices?.[0]?.message?.content ?? "{}"); } catch { throw new Erro("A IA respondeu fora do formato. Tente de novo.", 502); }
-  const txt = (x: unknown, n = 400) => (x && typeof x === "object" ? Object.values(x as Record<string, unknown>).join(" · ") : String(x ?? "")).slice(0, n);
-  // garantias que não dependem da IA: palavra do CTA, aviso de comissão e "imagem ilustrativa" nos posts da LAURA
-  const cta = txt(res.cta_palavra, 20).toUpperCase().replace(/[^A-ZÀ-Ú0-9]/g, "") || "LINK";
-  let legenda = txt(res.legenda, 2200).replace(/\bPALAVRA\b/g, cta);
-  if (f.autoria === "laura" && !/imagem ilustrativa/i.test(legenda)) legenda += "\n\nImagem ilustrativa (criada com IA).";
-  if (!/comiss[aã]o/i.test(legenda)) legenda += "\nPosso receber comissão pelos links.";
-  return {
-    formato: Object.keys(FORMATOS_ESTUDIO).find((k) => FORMATOS_ESTUDIO[k] === f), rede, itens, produtos,
-    titulo: txt(res.titulo, 120) || ideia.slice(0, 80),
-    ganchos: (Array.isArray(res.ganchos) ? res.ganchos : []).slice(0, 3).map((g: unknown) => txt(g, 120)),
-    gancho_recomendado: [0, 1, 2].includes(res.gancho_recomendado) ? res.gancho_recomendado : 0, por_que: txt(res.por_que, 300),
-    roteiro: (Array.isArray(res.roteiro) ? res.roteiro : []).slice(0, 12).map((x: any) => ({ quando: txt(x?.quando, 30), cena: txt(x?.cena, 300), texto_tela: txt(x?.texto_tela, 160) })),
-    legenda, cta_palavra: cta,
-    gravar: (Array.isArray(res.gravar) ? res.gravar : []).slice(0, 10).map((x: unknown) => txt(x, 200)),
-    edicao: Object.fromEntries(["texto_tela", "ritmo", "audio", "capa"].map((k) => [k, txt(res.edicao?.[k], 200)])),
-    alertas: [...avisos, ...(Array.isArray(res.alertas) ? res.alertas : []).slice(0, 6).map((x: unknown) => txt(x, 200)).filter(Boolean)],
-  };
-}
-async function estudioParaFila(b: any) {
-  const f = FORMATOS_ESTUDIO[String(b.formato)]; if (!f) throw new Erro("formato inválido");
-  const titulo = String(b.titulo ?? "").trim().slice(0, 140); if (!titulo) throw new Erro("Falta o título.");
-  const rede = ["instagram", "tiktok", "instagram+tiktok"].includes(b.rede) ? b.rede : "instagram+tiktok";
-  const itens = (Array.isArray(b.itens) ? b.itens : []).map((x: unknown) => String(x).toUpperCase()).filter((x: string) => /^(PACK-[VC]\d+|OFERTA-\d+)$/.test(x));
-  const roteiro = (Array.isArray(b.roteiro) ? b.roteiro : []).slice(0, 12).map((x: any) => `${String(x?.quando ?? "").slice(0, 30)}: ${String(x?.cena ?? "").slice(0, 300)}${x?.texto_tela ? ` [tela: ${String(x.texto_tela).slice(0, 160)}]` : ""}`);
-  const ed = b.edicao ?? {};
-  const obs = [`Criado no Estúdio do app (${hoje()}). Ideia: ${String(b.ideia ?? "").slice(0, 500)}`,
-    roteiro.length ? `Roteiro: ${roteiro.join(" / ")}` : "", Array.isArray(b.gravar) && b.gravar.length ? `Gravar/produzir: ${b.gravar.slice(0, 10).map((x: unknown) => String(x).slice(0, 200)).join("; ")}` : "",
-    `Edição: texto ${String(ed.texto_tela ?? "")}; ritmo ${String(ed.ritmo ?? "")}; áudio ${String(ed.audio ?? "")}; capa ${String(ed.capa ?? "")}`,
-    b.cta_palavra ? `CTA: Comenta ${String(b.cta_palavra).slice(0, 20)}` : ""].filter(Boolean).join(" | ").slice(0, 4000);
-  const { data: dono } = await db.from("afiloop_propostas").select("usuario_id").limit(1).maybeSingle();
-  if (!dono?.usuario_id) throw new Erro("Não achei a dona da fila.", 500);
-  const { data, error } = await db.from("afiloop_propostas").insert({
-    usuario_id: dono.usuario_id, tipo: f.tipo, autoria: f.autoria, itens, titulo, rede, status: "proposta", criado_por: "estudio do app",
-    gancho: String(b.gancho ?? "").slice(0, 200) || null, legenda: String(b.legenda ?? "").slice(0, 2200) || null, observacoes: obs,
-  }).select("id").single();
-  if (error) throw new Erro(error.message, 500);
-  return { ok: true, id: data.id };
-}
-
-async function filaAfiloop() {
-  const { data: ps, error } = await db.from("afiloop_propostas")
-    .select("id, tipo, itens, titulo, gancho, legenda, nicho, rede, observacoes, status, agendado_para, autoria, arquivos, ajuste, aprovado_em, postado_em, criado_em, drive_url, postado_ig, postado_tt")
-    .order("agendado_para", { ascending: true, nullsFirst: false }).order("id").limit(400);
-  if (error) throw new Erro(error.message, 500);
-  const visiveis = (ps ?? []).filter((p: any) => etapaFila(p));
-  const ocultos = (ps ?? []).length - visiveis.length;
-  const cods = [...new Set(visiveis.flatMap((p: any) => p.itens ?? []))] as string[];
-  const num = (pre: string) => cods.filter((c) => c.startsWith(pre)).map((c) => Number(c.slice(pre.length))).filter(Boolean);
-  const [vs, cs, os] = await Promise.all([
-    num("PACK-V").length ? db.from("afiloop_videos").select("id, miniatura_url, link_afiliado, duracao_s").in("id", num("PACK-V")).then((r) => r.data ?? []) : [],
-    num("PACK-C").length ? db.from("afiloop_carrosseis").select("id, fotos, links_afiliados").in("id", num("PACK-C")).then((r) => r.data ?? []) : [],
-    num("OFERTA-").length ? db.from("afiloop_ofertas").select("id, nome, preco, imagem_url, link_afiliado, preco_conferido_em").in("id", num("OFERTA-")).then((r) => r.data ?? []) : [],
-  ]);
-  const info: Record<string, any> = {};
-  for (const v of vs as any[]) info[`PACK-V${String(v.id).padStart(4, "0")}`] = { img: v.miniatura_url, link: v.link_afiliado, seg: v.duracao_s };
-  for (const c of cs as any[]) info[`PACK-C${String(c.id).padStart(4, "0")}`] = { img: c.fotos?.[0]?.url ?? null, link: c.links_afiliados?.[0]?.afiliado ?? null };
-  for (const o of os as any[]) info[`OFERTA-${o.id}`] = { img: o.imagem_url, link: o.link_afiliado, nome: o.nome, preco: o.preco, conferido: o.preco_conferido_em };
-  const itens = visiveis.map((p: any) => ({
-    ...p, aba: etapaFila(p), etapa: etapaLegada(etapaFila(p)),
-    detalhes: (p.itens ?? []).map((c: string) => ({ codigo: c, ...(info[c] ?? {}) })),
-  }));
-  const contagem: Record<string, number> = { proposta: 0, aprovado: 0, publicado: 0, ocultos };
-  for (const i of itens) contagem[i.aba!]++;
-  // mesmas contagens com os nomes antigos, para o app que ainda usa aprovar/pronto/postado
-  Object.assign(contagem, { aprovar: contagem.proposta, producao: 0, pronto: contagem.aprovado, postado: contagem.publicado, descartada: 0 });
-  return { itens, contagem };
-}
-
-async function acaoFila(b: any) {
-  if (b.acao === "aprovar") throw new Erro('A aprovação agora é feita só no chat com os bots (AfiLoop/Editora). Depois do seu "pode ir" lá, o post aparece em Aprovados.', 409);
-  const ids = (Array.isArray(b.ids) ? b.ids : [b.id]).map(Number).filter((n: number) => Number.isInteger(n) && n > 0);
-  if (!ids.length) throw new Erro("Escolha pelo menos um post.");
-  const { data: ps } = await db.from("afiloop_propostas").select("id, status, rede, arquivos, ajuste, observacoes, postado_ig, postado_tt").in("id", ids);
-  const agora = new Date().toISOString();
-  let feitos = 0;
-  for (const p of ps ?? []) {
-    let up: Record<string, unknown> | null = null;
-    switch (b.acao) {
-      case "ajuste": {
-        const txt = String(b.texto ?? "").trim().slice(0, 1000);
-        if (!txt) throw new Erro("Escreva o que quer mudar.");
-        const hist = `[${hoje()}] ajuste pedido: ${txt}`;
-        up = { status: "produzindo", ajuste: txt, observacoes: p.observacoes ? `${p.observacoes} | ${hist}` : hist };
-        break;
-      }
-      case "descartar": if (p.status !== "postado") up = { status: "descartada" }; break;
-      case "postado": {
-        if (p.status === "na_fila") {
-          const r = redesDoPost(p.rede);
-          up = { status: "postado", postado_em: agora, postado_ig: r.ig || !!p.postado_ig, postado_tt: r.tt || !!p.postado_tt };
-        }
-        break;
-      }
-      // marca/desmarca uma rede; o post vira "postado" quando todas as redes dele estão marcadas
-      case "postado_rede": {
-        if (!["na_fila", "postado"].includes(p.status)) break;
-        const k = b.rede === "instagram" ? "postado_ig" : b.rede === "tiktok" ? "postado_tt" : null;
-        if (!k) throw new Erro("rede inválida");
-        const r = redesDoPost(p.rede);
-        if ((k === "postado_ig" && !r.ig) || (k === "postado_tt" && !r.tt)) break;
-        const f = { postado_ig: !!p.postado_ig, postado_tt: !!p.postado_tt, [k]: !!b.valor };
-        const completo = (!r.ig || f.postado_ig) && (!r.tt || f.postado_tt);
-        up = { postado_ig: f.postado_ig, postado_tt: f.postado_tt };
-        if (p.status === "na_fila" && completo) { up.status = "postado"; up.postado_em = agora; }
-        if (p.status === "postado" && !completo) { up.status = "na_fila"; up.postado_em = null; }
-        break;
-      }
-      case "desfazer_postado":
-        if (p.status === "postado") up = { status: "na_fila", postado_em: null, postado_ig: false, postado_tt: false };
-        break;
-      case "voltar": up = { status: p.arquivos?.length ? "produzindo" : "proposta", aprovado_em: null, postado_em: null, postado_ig: false, postado_tt: false }; break;
-      default: throw new Erro("ação desconhecida");
-    }
-    if (!up) continue;
-    const { error } = await db.from("afiloop_propostas").update({ ...up, atualizado_em: agora }).eq("id", p.id);
-    if (error) throw new Erro(error.message, 500);
-    feitos++;
-  }
-  return { ok: true, feitos, ignorados: ids.length - feitos };
-}
-
-async function editarFila(b: any) {
-  const id = Number(b.id); if (!id) throw new Erro("post inválido");
-  const up: Record<string, unknown> = { atualizado_em: new Date().toISOString() };
-  for (const k of ["titulo", "gancho", "legenda"]) if (typeof b[k] === "string") up[k] = b[k].trim().slice(0, 4000) || null;
-  if (typeof b.rede === "string") {
-    if (!["instagram", "tiktok", "instagram+tiktok"].includes(b.rede)) throw new Erro("rede inválida");
-    up.rede = b.rede;
-  }
-  if (b.dia !== undefined) {
-    if (!b.dia) up.agendado_para = null;
-    else {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(b.dia) || (b.hora && !/^([01]\d|2[0-3]):[0-5]\d$/.test(b.hora))) throw new Erro("data ou hora inválida");
-      up.agendado_para = `${b.dia}T${b.hora || "11:30"}:00-03:00`;
-    }
-  }
-  if (up.titulo === null) throw new Erro("O título não pode ficar vazio.");
-  const { error } = await db.from("afiloop_propostas").update(up).eq("id", id);
-  if (error) throw new Erro(error.message, 500);
-  return { ok: true };
 }
 
 // ---------------- utilidades de data (fuso de Recife) ----------------
@@ -1391,7 +1077,7 @@ async function rodarNotificacoes() {
     else {
       const novos = total >= base.total ? total - base.total : total;
       if (novos > 0) {
-        const enviou = await umaVez(`pack:${d}`, () => enviarPush("📦 Novidades no pack hoje", `${novos} vídeo(s) ou carrossel(éis) novo(s) desde o último resumo, com os links já trocados pelos seus.`, "/#afiloop", "pack"));
+        const enviou = await umaVez(`pack:${d}`, () => enviarPush("📦 Novidades no pack hoje", `${novos} vídeo(s) ou carrossel(éis) novo(s) desde o último resumo, com os links já trocados pelos seus.`, `${STUDIO}/#biblioteca`, "pack"));
         if (enviou) { await setConfig("tg_pack_aviso", { total, dia: d }); feitas.push("pack"); }
       } else if (total < base.total) await setConfig("tg_pack_aviso", { total, dia: d });
     }
@@ -1405,7 +1091,7 @@ async function rodarNotificacoes() {
     if (!redesDoPost(p.rede).tt) continue;
     const ag = new Date(p.agendado_para).getTime(), dif = (agoraMs - ag) / 60e3; // minutos desde o horário
     const hora = new Intl.DateTimeFormat("pt-BR", { timeZone: TZ, hour: "2-digit", minute: "2-digit" }).format(new Date(ag)).replace(":", "h");
-    const url = `/#afiloop/post/${p.id}`;
+    const url = `${STUDIO}/#posts/${p.id}`;
     if (dif >= -5 && dif < 30) {
       if (await umaVez(`tt:${p.id}:${p.agendado_para}`, () => enviarPush(`📱 Hora do TikTok · ${hora}`, `${p.titulo}\nToque para abrir o vídeo e a legenda.`, url, `tt-${p.id}`))) feitas.push("tiktok");
     } else if (dif >= 30 && dif < 70) {
@@ -1617,25 +1303,6 @@ Deno.serve(async (req) => {
       case "/juridico": return json(await juridico());
       case "/midia": return json(await midia());
       case "/midia/atualizar": return json(await atualizarMidia(b));
-      case "/afiloop/ofertas": {
-        const { data } = await db.from("afiloop_ofertas").select("id, nome, preco, comissao_pct, comissao_valor, vendas, nota, link_afiliado, imagem_url, nicho, preco_conferido_em, status")
-          .neq("status", "descartada").order("comissao_valor", { ascending: false }).limit(40);
-        return json(data ?? []);
-      }
-      case "/afiloop/biblioteca": return json(await bibliotecaPack(q));
-      case "/afiloop/biblioteca/estrela": return json(await estrelaPack(b));
-      case "/afiloop/fila": return json(await filaAfiloop());
-      case "/afiloop/estudio/estilo": {
-        if (req.method === "POST") {
-          const t = String(b.estilo ?? "").trim().slice(0, 4000);
-          if (t) await setConfig("estudio_estilo", t); else await db.from("app_config").delete().eq("chave", "estudio_estilo");
-        }
-        return json({ estilo: await estiloEstudio(), padrao: ESTILO_PADRAO, regras: REGRAS_FIXAS });
-      }
-      case "/afiloop/estudio/gerar": return json(await gerarEstudio(b));
-      case "/afiloop/estudio/fila": return json(await estudioParaFila(b));
-      case "/afiloop/fila/acao": return json(await acaoFila(b));
-      case "/afiloop/fila/editar": return json(await editarFila(b));
       case "/dia/salvar": return json(await salvarDia(b));
       case "/tarefa/atualizar": return json(await atualizarTarefa(b));
       case "/tarefa/criar": return json(await criarTarefa(b));

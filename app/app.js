@@ -31,7 +31,6 @@ const ABAS = [
   { id: "agenda", nome: "Agenda", cor: "var(--agenda)", ic: '<rect x="3" y="4.5" width="18" height="16" rx="3"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/>' },
   { id: "chat", nome: "Chat", cor: "var(--hoje)", ic: '<path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.2A8 8 0 1 1 20 12z"/><path d="M8.5 11h.01M12 11h.01M15.5 11h.01"/>' },
   { id: "financeiro", nome: "Financeiro", cor: "var(--fin)", ic: '<rect x="2.5" y="5.5" width="19" height="13" rx="3"/><path d="M2.5 10h19M6.5 14.5h4"/>' },
-  { id: "afiloop", nome: "Afiloop", fora: true, cor: "var(--afiloop)", ic: '<path d="M12 21s-7.5-4.6-9.3-9.2C1.4 8.4 3.6 5 7 5c2 0 3.4 1.1 5 3 1.6-1.9 3-3 5-3 3.4 0 5.6 3.4 4.3 6.8C19.5 16.4 12 21 12 21z"/>' },
   { id: "eu", nome: "Eu", cor: "var(--eu)", ic: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1.2-4 4.3-6 8-6s6.8 2 8 6"/>' },
 ];
 const ICONE = (p, extra = "") => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" ${extra}>${p}</svg>`;
@@ -39,7 +38,7 @@ const ICONE = (p, extra = "") => `<svg viewBox="0 0 24 24" fill="none" stroke="c
 const lerToken = () => { try { return localStorage.getItem("sc_token") || sessionStorage.getItem("sc_token"); } catch { return null; } };
 let token = lerToken() || null;
 try { if (token) localStorage.setItem("sc_token", token); } catch {}
-let estado = { aba: "hoje", agendaModo: "semana", agendaRef: hojeISO(), agendaDiaSel: hojeISO(), finMes: hojeISO().slice(0, 7), euDia: hojeISO(), afiloopParte: "fila", cache: {} };
+let estado = { aba: "hoje", agendaModo: "semana", agendaRef: hojeISO(), agendaDiaSel: hojeISO(), finMes: hojeISO().slice(0, 7), euDia: hojeISO(), cache: {} };
 
 // ---------------- API ----------------
 async function api(caminho, corpo) {
@@ -171,13 +170,12 @@ function abrirApp() {
   if (ABAS.some((x) => x.id === a)) estado.aba = a;
   render();
 }
-// link das notificações do TikTok: #afiloop/post/ID abre a ficha do post na Fila (aba Aprovados)
+const STUDIO = "https://afiloop.julianaa-laginhas.workers.dev"; // o Afiloop (posts, propostas, pack) agora fica no Afiloop Studio
+// links antigos (#afiloop e #afiloop/post/ID, de notificações já enviadas) abrem o Afiloop Studio
 function lerLinkPost() {
-  const m = location.hash.match(/^#afiloop\/post\/(\d+)/);
+  const m = location.hash.match(/^#afiloop(?:\/post\/(\d+))?/);
   if (!m) return false;
-  estado.aba = "afiloop"; estado.afiloopParte = "fila"; filaEst.aba = "aprovado"; filaEst.sel = null; filaEst.cache = false;
-  estado.abrirPost = Number(m[1]);
-  history.replaceState(null, "", "#afiloop");
+  location.replace(`${STUDIO}/#${m[1] ? `posts/${m[1]}` : "posts"}`);
   return true;
 }
 window.addEventListener("hashchange", () => { if (token && lerLinkPost()) render(); });
@@ -201,17 +199,11 @@ async function render() {
   const aba = ABAS.find((a) => a.id === estado.aba);
   document.documentElement.style.setProperty("--area", aba.cor);
   const el = $("#app");
-  const desenhar = { hoje: telaHoje, agenda: telaAgenda, afiloop: telaAfiloop, financeiro: telaFinanceiro, eu: telaEu, chat: telaChat }[estado.aba];
+  const desenhar = { hoje: telaHoje, agenda: telaAgenda, financeiro: telaFinanceiro, eu: telaEu, chat: telaChat }[estado.aba];
   if (!el.dataset.aba || el.dataset.aba !== estado.aba) el.innerHTML = `<div class="carregando">Carregando…</div>`;
   el.dataset.aba = estado.aba;
   try {
     el.innerHTML = await desenhar();
-    if (estado.aba === "afiloop" && estado.afiloopParte === "fila") {
-      if (estado.abrirPost) {
-        const i = filaEst.dados?.itens.find((x) => x.id === estado.abrirPost); estado.abrirPost = null;
-        if (i) { if (i.aba !== filaEst.aba) { filaEst.aba = i.aba; filaEst.cache = true; await render(); } folhaPost(i); } else toast("Esse post não está mais na fila.");
-      } else restaurarPainelFila();
-    }
   }
   catch (e) { el.innerHTML = topo(aba.nome) + `<main><div class="aviso">⚠️ ${esc(e.message)}</div><button class="btn sec" onclick="render()">Tentar de novo</button></main>`; }
 }
@@ -254,7 +246,7 @@ async function abrirAtalho(k) {
   const ir = async (aba, alvo) => { estado.aba = aba; history.replaceState(null, "", "#" + aba); await render(); scrollTo(0, 0); if (alvo) document.getElementById(alvo)?.scrollIntoView({ behavior: "smooth", block: "start" }); };
   ({
     agenda: () => ir("agenda"), financeiro: () => ir("financeiro"), diario: () => ir("eu"), habitos: () => ir("eu", "eu-habitos"), metas: () => ir("eu", "eu-metas"),
-    afiloop: () => ir("afiloop"), compras: () => folhaListas(false), wishlist: () => folhaListas(true), saude: () => { saudePessoa = "Juliana"; folhaSaude(); },
+    afiloop: () => window.open(`${STUDIO}/#posts`, "_blank", "noopener"), compras: () => folhaListas(false), wishlist: () => folhaListas(true), saude: () => { saudePessoa = "Juliana"; folhaSaude(); },
     nicolas: () => { saudePessoa = "Nicolas"; folhaSaude(); }, juridico: folhaJuridico, midia: folhaMidia,
   })[k]?.();
 }
@@ -382,360 +374,6 @@ async function telaAgenda() {
     ${rodapeAtrasadas(d, de)}
     ${d.sem_data.length ? `<div class="secao-titulo">Sem data (${d.sem_data.length})</div><div class="card">${d.sem_data.map((i) => linhaItem(i)).join("")}</div>` : ""}
   </main>`;
-}
-
-// ---------------- AFILOOP: fila de aprovação ----------------
-// A aprovação é feita no chat com os bots (AfiLoop/Editora). Aqui a Juliana confere, marca o que postou e descarta.
-const ABAS_FILA = [["proposta", "Propostas"], ["aprovado", "Aprovados"], ["publicado", "Publicados"]];
-const TIPO_POST = { video: "Vídeo", carrossel: "Carrossel", look: "Look", luxo_vs_achadinho: "Dupe", meme: "Meme", outro: "Post" };
-const filaEst = { aba: "proposta", rede: "todas", sel: null, dados: null, cache: false, aberto: null };
-const redeDe = (r) => { const x = String(r ?? "").toLowerCase(); return x === "ambos" || (x.includes("insta") && x.includes("tik")) ? "instagram+tiktok" : x.includes("tik") ? "tiktok" : x.includes("insta") ? "instagram" : x; };
-const redeTxt = (r) => ({ instagram: "Instagram", tiktok: "TikTok", "instagram+tiktok": "IG + TikTok" }[redeDe(r)] ?? (r || "sem rede"));
-const redesDe = (r) => { const x = redeDe(r); return [["instagram", "Instagram", "postado_ig"], ["tiktok", "TikTok", "postado_tt"]].filter(([id]) => x.includes(id)); };
-const quando = (iso) => {
-  if (!iso) return { dia: null, hora: null };
-  const p = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone: "America/Recife", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })
-    .formatToParts(new Date(iso)).map((x) => [x.type, x.value]));
-  return { dia: `${p.year}-${p.month}-${p.day}`, hora: `${String(Number(p.hour) % 24).padStart(2, "0")}:${p.minute}` };
-};
-const ehVideo = (u) => /\.(mp4|mov|webm|m4v)(\?|$)/i.test(u);
-const ehImagem = (u) => /\.(jpe?g|png|webp|gif|avif)(\?|$)/i.test(u);
-const linkSeguro = (u) => /^https:\/\//i.test(String(u ?? "")) ? u : null;
-function capaPost(i) {
-  const fotos = (i.arquivos ?? []).filter(ehImagem);
-  const temVideo = (i.arquivos ?? []).some(ehVideo);
-  const img = fotos[0] ?? i.detalhes?.find((d) => d.img)?.img ?? null;
-  return { img, temVideo, n: fotos.length > 1 ? fotos.length : 0 };
-}
-function linhaFila(i) {
-  const c = capaPost(i), q = quando(i.agendado_para), sel = filaEst.sel;
-  const tags = [];
-  if (i.aba === "aprovado") for (const [id, , k] of redesDe(i.rede)) { const s = id === "instagram" ? "IG" : "TT"; tags.push(i[k] ? `<span class="tag ok">${s} ✓</span>` : `<span class="tag pend" title="falta postar">${s} ⏳</span>`); }
-  if (i.aba === "publicado") tags.push(`<span class="tag ok">Publicado</span>`);
-  if (i.ajuste && i.aba === "proposta") tags.push(`<span class="tag pend">Ajuste pedido</span>`);
-  if (i.autoria === "laura") tags.push(`<span class="tag laura">LAURA</span>`);
-  return `<button class="fila-item${sel?.has(i.id) ? " sel" : ""}${filaEst.aberto === i.id ? " aberto" : ""}" data-fila="${i.id}">
-    ${sel ? `<span class="marca" aria-hidden="true"></span>` : ""}
-    <span class="fila-capa">${c.img ? `<img src="${esc(c.img)}" alt="" loading="lazy">` : `<span class="sem">${i.tipo === "meme" ? "😂" : i.tipo === "carrossel" ? "🖼️" : "🎬"}</span>`}
-      ${c.temVideo ? `<i class="play">▶</i>` : ""}${c.n ? `<b class="qtd">${c.n}</b>` : ""}</span>
-    <span class="txt"><span class="t1">${esc(i.titulo)}</span>
-      <span class="t2">${q.hora ? q.hora.replace(":", "h") + " · " : ""}${redeTxt(i.rede)} · ${TIPO_POST[i.tipo] ?? "Post"}${i.drive_url ? " · 📁" : ""}</span>
-      ${tags.length ? `<span class="tags">${tags.join("")}</span>` : ""}</span></button>`;
-}
-async function corpoFila() {
-  const d = filaEst.cache && filaEst.dados ? filaEst.dados : (filaEst.dados = await api("/afiloop/fila"));
-  filaEst.cache = false;
-  const a = filaEst.aba, rede = filaEst.rede;
-  const lista = d.itens.filter((i) => i.aba === a && (rede === "todas" || redeDe(i.rede).includes(rede)));
-  const porDia = new Map();
-  for (const i of lista) { const k = quando(i.agendado_para).dia ?? "sem"; if (!porDia.has(k)) porDia.set(k, []); porDia.get(k).push(i); }
-  const dias = a === "publicado" ? [...porDia].reverse() : [...porDia];
-  const h = hojeISO(), podeSel = a !== "publicado", sel = filaEst.sel;
-  const dica = {
-    proposta: "Para aprovar ou pedir ajuste, responda no chat com os bots AfiLoop/Editora. Depois do seu \"pode ir\" lá, o post vem para Aprovados.",
-    aprovado: "Prontos para postar. Marque cada rede quando postar; com todas marcadas, o post vai para Publicados.",
-    publicado: "",
-  }[a];
-  const vazio = { proposta: "Nenhuma proposta esperando você. 🎉", aprovado: "Nada aprovado esperando para postar.", publicado: "Nada publicado ainda." }[a];
-  const ocultos = d.contagem.ocultos ? `<p class="fila-dica">${d.contagem.ocultos} post(s) em produção ou descartados não aparecem aqui.</p>` : "";
-  return `<div class="chips rolar">${ABAS_FILA.map(([id, n]) => `<button class="chip${a === id ? " on" : ""}" data-faba="${id}">${n}${d.contagem[id] ? ` <b>${d.contagem[id]}</b>` : ""}</button>`).join("")}</div>
-    <div class="fila-filtros"><div class="chips">${[["todas", "Todas"], ["instagram", "Instagram"], ["tiktok", "TikTok"]].map(([id, n]) => `<button class="chip mini${rede === id ? " on" : ""}" data-frede="${id}">${n}</button>`).join("")}</div>
-      ${podeSel && lista.length ? `<button class="btn-link" data-facao="selecionar">${sel ? "Cancelar" : "Selecionar"}</button>` : ""}</div>
-    ${dica ? `<p class="fila-dica">${esc(dica)}</p>` : ""}
-    ${sel ? `<div class="fila-selbar"><button class="btn-link" data-facao="todos">${sel.size === lista.length ? "Desmarcar todos" : "Marcar todos"}</button><span>${sel.size} selecionado(s)</span></div>` : ""}
-    <div class="fila-split"><div class="fila-lista">
-    ${lista.length ? dias.map(([dia, its]) => `<div class="secao-titulo"${dia === h ? ' style="color:var(--afiloop)"' : ""}>${dia === "sem" ? "Sem data" : (dia === h ? "Hoje · " : "") + fmtDia(dia)}</div>
-      <div class="card">${its.map(linhaFila).join("")}</div>`).join("") : `<div class="card"><div class="vazio">${vazio}</div></div>`}
-    ${a === "proposta" ? ocultos : ""}</div>
-    <aside id="fila-painel" class="fila-painel" aria-label="Post selecionado">${PAINEL_VAZIO}</aside></div>
-    ${sel ? `<div class="fila-lote"><button class="btn sec" data-facao="lote-descartar" ${sel.size ? "" : "disabled"}>Descartar</button>
-      ${a === "aprovado" ? `<button class="btn" data-facao="lote-postado" ${sel.size ? "" : "disabled"}>Marcar postado ${sel.size || ""}</button>` : ""}</div>` : ""}`;
-}
-const acao_ = (ids, acao, extra) => api("/afiloop/fila/acao", { ids, acao, ...extra }).catch((e) => { toast(e.message); throw e; });
-async function filaAcao(ids, acao) {
-  const r = await acao_(ids, acao, {});
-  toast(r.feitos ? `Pronto ✓ (${r.feitos})` : "Nada mudou");
-  if (r.ignorados) toast(`${r.ignorados} não mudaram (o status não permite).`);
-  filaEst.sel = null; return render();
-}
-async function cliqueFila(t) {
-  filaEst.cache = true; // abas, filtros e seleção redesenham com os dados já carregados
-  if (t.dataset.faba) { filaEst.aba = t.dataset.faba; filaEst.sel = null; filaEst.aberto = null; return render(); }
-  if (t.dataset.frede) { filaEst.rede = t.dataset.frede; return render(); }
-  const a = t.dataset.facao;
-  if (a === "selecionar") { filaEst.sel = filaEst.sel ? null : new Set(); return render(); }
-  if (a === "todos") {
-    const vis = [...document.querySelectorAll("#app [data-fila]")].map((b) => Number(b.dataset.fila));
-    filaEst.sel = filaEst.sel.size === vis.length ? new Set() : new Set(vis); return render();
-  }
-  if (a?.startsWith("lote-")) {
-    const ids = [...filaEst.sel]; const op = a.slice(5); filaEst.cache = false;
-    if (op === "descartar" && !confirm(`Descartar ${ids.length} post(s)?`)) return;
-    if (op === "postado" && !confirm(`Marcar ${ids.length} post(s) como postados em todas as redes deles?`)) return;
-    return filaAcao(ids, op);
-  }
-  if (t.dataset.fila) {
-    const id = Number(t.dataset.fila);
-    if (filaEst.sel) { filaEst.sel.has(id) ? filaEst.sel.delete(id) : filaEst.sel.add(id); return render(); }
-    filaEst.cache = false; return folhaPost(filaEst.dados.itens.find((i) => i.id === id));
-  }
-}
-// no computador (tela larga) a ficha do post abre no painel ao lado da lista, sem janela por cima
-const telaLarga = () => matchMedia("(min-width: 1024px)").matches;
-function emPainel(html, aoAbrir) {
-  const pn = $("#fila-painel");
-  if (!pn || !telaLarga()) return folha(html, aoAbrir);
-  pn.innerHTML = `<button class="fechar-folha" aria-label="Fechar">Fechar</button>${html}`;
-  pn.scrollTop = 0;
-  const fechar = () => { filaEst.aberto = null; pn.innerHTML = PAINEL_VAZIO; marcarAberto(); };
-  pn.querySelector(".fechar-folha").onclick = fechar;
-  aoAbrir?.(pn, fechar);
-}
-const PAINEL_VAZIO = `<div class="painel-vazio">Escolha um post da lista para ver aqui.</div>`;
-function marcarAberto() { document.querySelectorAll("#app [data-fila]").forEach((b) => b.classList.toggle("aberto", Number(b.dataset.fila) === filaEst.aberto)); }
-function restaurarPainelFila() {
-  if (!telaLarga() || !filaEst.aberto) return;
-  const i = filaEst.dados?.itens.find((x) => x.id === filaEst.aberto && x.aba === filaEst.aba);
-  if (i) folhaPost(i); else filaEst.aberto = null;
-}
-function folhaPost(i) {
-  if (!i) return;
-  filaEst.aberto = i.id; marcarAberto();
-  const q = quando(i.agendado_para), vids = (i.arquivos ?? []).filter(ehVideo), fotos = (i.arquivos ?? []).filter(ehImagem);
-  const outros = (i.arquivos ?? []).filter((u) => !ehVideo(u) && !ehImagem(u) && linkSeguro(u));
-  const poster = i.detalhes?.find((d) => d.img)?.img, drive = linkSeguro(i.drive_url);
-  const midia = vids.length || fotos.length
-    ? `${vids.map((u) => `<video class="fila-video" src="${esc(u)}" ${poster ? `poster="${esc(poster)}"` : ""} controls playsinline preload="metadata"></video>`).join("")}
-       ${fotos.length ? `<div class="fila-fotos">${fotos.map((u, k) => `<a href="${esc(u)}" target="_blank" rel="noopener"><img src="${esc(u)}" alt="Slide ${k + 1}" loading="lazy"></a>`).join("")}</div>` : ""}`
-    : drive || outros.length ? "" : `<div class="aviso-suave">O arquivo editado ainda não está aqui.</div>`;
-  const baixar = outros.map((u) => `<a class="btn sec" href="${esc(u)}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-bottom:10px">⬇️ Baixar ${esc(decodeURIComponent(u.split("/").pop().split("?")[0]))}</a>`).join("");
-  const produtos = (i.detalhes ?? []).map((d) => `<div class="linha-item">${d.img ? `<img class="mini-capa" src="${esc(d.img)}" alt="" loading="lazy">` : ""}
-    <div class="txt"><div class="t1">${esc(d.nome ?? d.codigo)}</div><div class="t2">${d.nome ? esc(d.codigo) + " · " : ""}${d.preco ? brl(d.preco) + (d.conferido ? ` (conferido ${fmtDia(String(d.conferido).slice(0, 10))})` : "") + " · " : ""}${d.seg ? Math.round(d.seg) + "s · " : ""}${d.link ? "seu link ✓" : "<b style='color:var(--perigo)'>sem seu link</b>"}</div></div>
-    ${linkSeguro(d.link) ? `<a class="btn pequeno sec" href="${esc(d.link)}" target="_blank" rel="noopener">Abrir</a>` : ""}</div>`).join("");
-  const redes = redesDe(i.rede);
-  const botoes = {
-    proposta: `<div class="aviso-suave">Para aprovar ou pedir ajuste, responda no chat com os bots <b>AfiLoop/Editora</b>. Depois do seu "pode ir" lá, este post aparece em Aprovados.</div>
-      <button class="btn sec perigo" data-p="descartar">Descartar</button>`,
-    aprovado: `${i.legenda ? `<button class="btn sec" data-p="copiar">📋 Copiar legenda</button>` : ""}
-      ${redes.map(([id, nome, k]) => `<button class="btn ${i[k] ? "" : "sec"} rede-pub${i[k] ? " on" : ""}" data-p="rede" data-rede="${id}" data-valor="${i[k] ? "0" : "1"}">${i[k] ? `✅ Postado no ${nome}` : `⬜ Postei no ${nome}`}</button>`).join("")}
-      ${redes.length > 1 ? `<button class="btn" data-p="postado" style="--area:var(--afiloop)">📤 Postei em todas</button>` : ""}
-      <button class="btn-link perigo" data-p="descartar">Descartar</button>`,
-    publicado: `<div class="aviso-suave">Publicado${i.postado_em ? ` em ${fmtDia(quando(i.postado_em).dia)}` : ""}: ${redes.map(([, nome, k]) => `${nome} ${i[k] ? "✓" : "—"}`).join(" · ")}</div>
-      <button class="btn-link" data-p="desfazer_postado">↩️ Desfazer "postado"</button>`,
-  }[i.aba] ?? "";
-  emPainel(`<div data-cheia></div><h2 style="font-size:19px;padding-right:56px">${esc(i.titulo)}</h2>
-    <div class="fila-meta">${q.dia ? `<span>📅 ${fmtDia(q.dia)} · ${q.hora.replace(":", "h")}</span>` : `<span>📅 sem data</span>`}<span>${redeTxt(i.rede)}</span><span>${TIPO_POST[i.tipo] ?? "Post"}</span>${i.autoria === "laura" ? "<span>👩 LAURA</span>" : i.autoria === "pack" ? "<span>📦 pack</span>" : ""}</div>
-    ${i.ajuste && i.aba === "proposta" ? `<div class="aviso-suave forte"><b>Ajuste pedido:</b> ${esc(i.ajuste)}</div>` : ""}
-    ${midia}${vids.map((u) => `<a class="btn sec" href="${esc(u)}" target="_blank" rel="noopener" download style="display:block;text-align:center;text-decoration:none;margin-bottom:10px">⬇️ Baixar o vídeo</a>`).join("")}${baixar}
-    ${drive ? `<a class="btn sec" href="${esc(drive)}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none;margin-bottom:10px">📁 Abrir os arquivos no Drive</a>` : ""}
-    ${i.gancho ? `<div class="secao-titulo">Gancho</div><div class="card"><div class="bloco-txt">${esc(i.gancho)}</div></div>` : ""}
-    ${i.legenda ? `<div class="secao-titulo">Legenda</div><div class="card"><div class="bloco-txt">${esc(i.legenda)}</div></div>` : ""}
-    ${produtos ? `<div class="secao-titulo">Produtos</div><div class="card">${produtos}</div>` : ""}
-    ${i.observacoes ? `<div class="secao-titulo">Notas de produção</div><div class="card"><div class="bloco-txt peq">${esc(i.observacoes).replace(/ \| /g, "<br>")}</div></div>` : ""}
-    ${i.aba !== "publicado" ? `<details class="fila-editar"><summary>Editar texto, dia e rede</summary>
-      <label class="campo"><span>Título</span><input id="p-titulo" value="${esc(i.titulo)}"></label>
-      <label class="campo"><span>Gancho</span><input id="p-gancho" value="${esc(i.gancho ?? "")}"></label>
-      <label class="campo"><span>Legenda</span><textarea id="p-legenda" rows="6">${esc(i.legenda ?? "")}</textarea></label>
-      <div class="linha-campos"><label class="campo"><span>Dia</span><input id="p-dia" type="date" value="${esc(q.dia ?? "")}"></label>
-      <label class="campo"><span>Hora</span><input id="p-hora" type="time" value="${esc(q.hora ?? "")}"></label></div>
-      <label class="campo"><span>Rede</span><select id="p-rede">${[["instagram+tiktok", "Instagram + TikTok"], ["instagram", "Só Instagram"], ["tiktok", "Só TikTok"]].map(([v, n]) => `<option value="${v}" ${redeDe(i.rede) === v ? "selected" : ""}>${n}</option>`).join("")}</select></label>
-      <button class="btn sec" data-p="salvar">Salvar alterações</button></details>` : ""}
-    <div class="fila-botoes">${botoes}</div>`, (f, fechar) => {
-    f.onclick = async (ev) => {
-      const b = ev.target.closest("[data-p]"); if (!b) return;
-      const op = b.dataset.p;
-      if (op === "copiar") { try { await navigator.clipboard.writeText(i.legenda); toast("Legenda copiada ✓"); } catch { toast("Não deu para copiar."); } return; }
-      if (op === "salvar") {
-        const corpo = { id: i.id, titulo: $("#p-titulo", f).value, gancho: $("#p-gancho", f).value, legenda: $("#p-legenda", f).value,
-          dia: $("#p-dia", f).value || null, hora: $("#p-hora", f).value || null, rede: $("#p-rede", f).value };
-        if (!corpo.titulo.trim()) return $("#p-titulo", f).classList.add("falta");
-        await acao(() => api("/afiloop/fila/editar", corpo), "Salvo ✓"); if (!telaLarga()) fechar(); return render();
-      }
-      if (op === "descartar" && !confirm("Descartar este post?")) return;
-      const extra = op === "rede" ? { rede: b.dataset.rede, valor: b.dataset.valor === "1" } : {};
-      b.disabled = true;
-      try {
-        const r = await acao_([i.id], op === "rede" ? "postado_rede" : op, extra);
-        if (!r.feitos) { toast("Nada mudou (o status não permite)."); b.disabled = false; return; }
-        toast({ rede: extra.valor ? "Marcado ✓" : "Desmarcado", postado: "Marcado como postado ✓", descartar: "Descartado", desfazer_postado: "Voltou para Aprovados" }[op] ?? "Pronto ✓");
-        if (!telaLarga()) fechar(); render(); // no computador o painel reabre sozinho se o post continuar nesta aba
-      } catch { b.disabled = false; }
-    };
-  });
-}
-
-// ---------------- Afiloop › Estúdio de criação ----------------
-// A ideia é sempre da Juliana; o Estúdio aplica o estilo do Laura Club e devolve roteiro, legenda e regras de edição.
-const FORMATOS_EST = [["reels_pack", "🎬 Reels do pack"], ["carrossel_laura", "👩 Carrossel da LAURA"], ["dupe", "💎 Dupe"], ["meme", "😂 Meme"], ["tiktok_rapido", "⚡ TikTok rápido"]];
-const estEst = { ideia: "", formato: "reels_pack", rede: "instagram+tiktok", itens: "", res: null, gancho: 0, gerando: false };
-function sincronizarEstudio() {
-  const v = (id) => document.getElementById(id)?.value;
-  if (v("e-ideia") !== undefined) estEst.ideia = v("e-ideia");
-  if (v("e-itens") !== undefined) estEst.itens = v("e-itens");
-  if (estEst.res) { if (v("e-titulo") !== undefined) estEst.res.titulo = v("e-titulo"); if (v("e-legenda") !== undefined) estEst.res.legenda = v("e-legenda"); }
-}
-function corpoEstudio() {
-  const r = estEst.res;
-  const form = `<div class="card pad est-form">
-    <label class="campo"><span>Sua ideia</span><textarea id="e-ideia" rows="4" placeholder="Ex.: 3 jeitos de usar a bolsa branca de corrente no fim de ano">${esc(estEst.ideia)}</textarea></label>
-    <div class="campo"><span>Formato</span><div class="chips">${FORMATOS_EST.map(([id, n]) => `<button class="chip mini${estEst.formato === id ? " on" : ""}" data-eformato="${id}">${n}</button>`).join("")}</div></div>
-    <div class="campo"><span>Rede</span><div class="chips">${[["instagram+tiktok", "IG + TikTok"], ["instagram", "Só Instagram"], ["tiktok", "Só TikTok"]].map(([id, n]) => `<button class="chip mini${estEst.rede === id ? " on" : ""}" data-erede="${id}">${n}</button>`).join("")}</div></div>
-    <label class="campo"><span>Produto (opcional): código do pack ou da oferta</span><input id="e-itens" value="${esc(estEst.itens)}" placeholder="Ex.: PACK-V0163, OFERTA-14" autocapitalize="characters"></label>
-    <button class="btn" data-est="gerar" style="--area:var(--afiloop)" ${estEst.gerando ? "disabled" : ""}>${estEst.gerando ? "Criando…" : r ? "✨ Gerar outra versão" : "✨ Criar roteiro"}</button>
-    <button class="btn-link" data-est="estilo" style="--area:var(--afiloop);width:100%;margin-top:6px">Meu estilo</button></div>`;
-  if (!r) return `<div class="est-grade">${form}<div class="card pad est-vazio">Escreva a ideia, escolha o formato e eu devolvo:<br>3 ganchos, roteiro com cortes ou slides, texto na tela, legenda com CTA, o que gravar e as regras de edição, tudo no estilo do Laura Club.<br><br>Depois é só mandar para a Fila.</div></div>`;
-  const g = estEst.gancho;
-  return `<div class="est-grade">${form}<div class="est-res">
-    ${r.alertas.length ? `<div class="aviso-suave forte">⚠️ ${r.alertas.map(esc).join("<br>⚠️ ")}</div>` : ""}
-    <div class="card pad"><label class="campo" style="margin:0"><span>Título</span><input id="e-titulo" value="${esc(r.titulo)}"></label></div>
-    <div class="secao-titulo">Gancho (escolha 1)</div>
-    <div class="card">${r.ganchos.map((x, k) => `<button class="est-gancho${g === k ? " on" : ""}" data-egancho="${k}"><span class="marca" aria-hidden="true"></span><span>${esc(x)}${k === r.gancho_recomendado ? ` <b class="tag ok">recomendado</b>` : ""}</span></button>`).join("")}</div>
-    ${r.por_que ? `<p class="fila-dica">${esc(r.por_que)}</p>` : ""}
-    <div class="secao-titulo">Roteiro</div>
-    <div class="card">${r.roteiro.map((x) => `<div class="linha-item est-linha"><b>${esc(x.quando)}</b><div class="txt"><div>${esc(x.cena)}</div>${x.texto_tela ? `<div class="t2">Na tela: “${esc(x.texto_tela)}”</div>` : ""}</div></div>`).join("")}</div>
-    <div class="secao-titulo">Legenda ${r.cta_palavra ? `· CTA: Comenta ${esc(r.cta_palavra)}` : ""}</div>
-    <div class="card pad"><textarea id="e-legenda" rows="9" class="est-legenda">${esc(r.legenda)}</textarea><button class="btn sec pequeno" data-est="copiar">📋 Copiar legenda</button></div>
-    ${r.gravar.length ? `<div class="secao-titulo">O que gravar ou produzir</div><div class="card pad"><ul class="est-lista">${r.gravar.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
-    <div class="secao-titulo">Edição</div><div class="card pad"><ul class="est-lista">${[["Texto na tela", "texto_tela"], ["Ritmo", "ritmo"], ["Áudio", "audio"], ["Capa", "capa"]].filter(([, k]) => r.edicao[k]).map(([n, k]) => `<li><b>${n}:</b> ${esc(r.edicao[k])}</li>`).join("")}</ul></div>
-    ${r.produtos?.length ? `<p class="fila-dica">Baseado em: ${r.produtos.map((x) => esc(x.split(":")[0])).join(", ")}</p>` : ""}
-    <button class="btn" data-est="fila" style="--area:var(--afiloop);margin-top:14px">📥 Mandar para a Fila</button></div></div>`;
-}
-async function cliqueEstudio(t) {
-  sincronizarEstudio();
-  if (t.dataset.eformato) { estEst.formato = t.dataset.eformato; return render(); }
-  if (t.dataset.erede) { estEst.rede = t.dataset.erede; return render(); }
-  if (t.dataset.egancho) { estEst.gancho = Number(t.dataset.egancho); return render(); }
-  const a = t.dataset.est;
-  if (a === "estilo") return folhaEstilo();
-  if (a === "copiar") { try { await navigator.clipboard.writeText(estEst.res.legenda); toast("Legenda copiada ✓"); } catch { toast("Não deu para copiar."); } return; }
-  if (a === "gerar") {
-    if (estEst.ideia.trim().length < 4) { toast("Escreva a sua ideia."); return document.getElementById("e-ideia")?.focus(); }
-    estEst.gerando = true; render();
-    try {
-      const itens = estEst.itens.split(/[\s,;]+/).filter(Boolean);
-      estEst.res = await api("/afiloop/estudio/gerar", { ideia: estEst.ideia, formato: estEst.formato, rede: estEst.rede, itens });
-      estEst.gancho = estEst.res.gancho_recomendado ?? 0;
-    } catch (e) { toast(e.message); }
-    estEst.gerando = false; return render();
-  }
-  if (a === "fila") {
-    const r = estEst.res; if (!r) return;
-    const corpo = { formato: r.formato, rede: r.rede, itens: r.itens, ideia: estEst.ideia, titulo: r.titulo, gancho: r.ganchos[estEst.gancho] ?? "", legenda: r.legenda,
-      roteiro: r.roteiro, gravar: r.gravar, edicao: r.edicao, cta_palavra: r.cta_palavra };
-    t.disabled = true;
-    try { await api("/afiloop/estudio/fila", corpo); toast("Na Fila ✓ (em Propostas)"); estEst.res = null; estEst.ideia = ""; estEst.itens = ""; filaEst.aba = "proposta"; estado.afiloopParte = "fila"; return render(); }
-    catch (e) { toast(e.message); t.disabled = false; }
-  }
-}
-async function folhaEstilo() {
-  const d = await acao(() => api("/afiloop/estudio/estilo"));
-  folha(`<h2>Meu estilo</h2><p style="color:var(--txt2);margin-top:-4px;font-size:14px">É assim que o Estúdio escreve. Mude o que quiser: tom, CTA, palavras proibidas, emojis.</p>
-    <label class="campo"><textarea id="s-estilo" rows="14">${esc(d.estilo)}</textarea></label>
-    <details class="fila-editar"><summary>Regras fixas (não mudam)</summary><div class="bloco-txt peq">${esc(d.regras)}</div></details>
-    <button class="btn" id="s-ok" style="--area:var(--afiloop)">Salvar estilo</button>
-    <button class="btn-link" id="s-padrao" style="--area:var(--txt2);width:100%;margin-top:6px">Voltar ao estilo padrão</button>`, (f, fechar) => {
-    $("#s-ok", f).onclick = async () => { await acao(() => api("/afiloop/estudio/estilo", { estilo: $("#s-estilo", f).value }), "Estilo salvo ✓"); fechar(); };
-    $("#s-padrao", f).onclick = async () => { if (!confirm("Voltar ao estilo padrão?")) return; await acao(() => api("/afiloop/estudio/estilo", { estilo: "" }), "Estilo padrão ✓"); fechar(); };
-  });
-}
-
-// ---------------- AFILOOP ----------------
-async function telaAfiloop() {
-  const partes = [["fila", "📥 Fila"], ["estudio", "✨ Estúdio"], ["calendario", "📅 Calendário"], ["ofertas", "🛒 Ofertas"], ["biblioteca", "🎬 Pack"], ["resultados", "📊 Resultados"]];
-  let corpo = "";
-  const p = estado.afiloopParte;
-  if (p === "fila") {
-    corpo = await corpoFila();
-  } else if (p === "estudio") {
-    corpo = corpoEstudio();
-  } else if (p === "ofertas") {
-    const o = await api("/afiloop/ofertas");
-    corpo = `<div class="card">${o.length ? o.map(ofertaHtml).join("") : `<div class="vazio">Nenhuma oferta salva ainda.</div>`}</div>
-      <p style="color:var(--txt2);font-size:13px;margin:10px 4px">Preços conferidos na data da busca; podem mudar. Peça ao Claude: "busca ofertas de Casa na Shopee".</p>`;
-  } else if (p === "biblioteca") {
-    corpo = await corpoBiblioteca();
-  } else {
-    const txt = {
-      calendario: ["Calendário de posts", "Chega na etapa 3, quando o Instagram e o TikTok estiverem conectados."],
-      resultados: ["Resultados", "Chega na etapa 3: seguidores, views, comissão por loja e quanto falta para a meta."],
-    }[p];
-    corpo = `<div class="card"><div class="breve"><b>${txt[0]}</b>${txt[1]}</div></div>`;
-  }
-  return topo("Afiloop", "Instagram e TikTok") + `<main>
-    <div class="segmentado">${partes.map(([id, n]) => `<button class="${p === id ? "on" : ""}" data-parte="${id}">${n}</button>`).join("")}</div>${corpo}</main>`;
-}
-
-// ---------------- Afiloop › Pack (galeria) ----------------
-const bibEst = { so: "novos", nicho: "", formato: "todos", dados: null, mais: [], proximo: null };
-const NICHOS_PACK = [["", "Todos"], ["Fashion", "Fashion"], ["Beauty", "Beauty"], ["Casa", "Casa"], ["Maternidade", "Maternidade"], ["sem", "Sem nicho"]];
-function cardPack(c) {
-  const k = esc(c.principal);
-  return `<div class="pk-card${c.selecionado ? " sel" : ""}">
-    <button class="pk-capa" data-bib="ver" data-k="${k}" aria-label="Ver ${k}">${c.capa ? `<img src="${esc(c.capa)}" alt="" loading="lazy">` : `<span class="sem">${c.tem_video ? "🎬" : "🖼️"}</span>`}
-      <span class="pk-tipo">${c.tem_video ? `▶ ${c.dur ? c.dur + "s" : "vídeo"}` : ""}${c.tem_video && c.fotos ? " + " : ""}${c.fotos ? `${c.fotos} foto${c.fotos > 1 ? "s" : ""}` : ""}</span></button>
-    <button class="pk-estrela${c.selecionado ? " on" : ""}" data-bib="estrela" data-k="${k}" aria-label="${c.selecionado ? "Tirar da seleção" : "Selecionar"}">${c.selecionado ? "★" : "☆"}</button>
-    <div class="pk-info"><div class="pk-l1"><b>${k}</b>${c.nicho ? `<span class="pk-nicho">${esc(c.nicho)}</span>` : ""}</div>
-      ${c.links.length ? `<div class="pk-link">${esc(c.links[0].replace(/^https?:\/\//, ""))}</div>
-        <div class="pk-bts"><button class="btn sec mini" data-bib="copiar" data-k="${k}">Copiar</button><button class="btn sec mini" data-bib="abrir" data-k="${k}">Abrir</button></div>`
-        : `<div class="pk-link sem">sem link ainda</div>`}</div></div>`;
-}
-async function corpoBiblioteca() {
-  const q = new URLSearchParams({ so: bibEst.so, formato: bibEst.formato }); if (bibEst.nicho) q.set("nicho", bibEst.nicho);
-  if (!bibEst.dados) { const d = await api("/afiloop/biblioteca?" + q); bibEst.dados = d; bibEst.mais = []; bibEst.proximo = d.proximo; }
-  const d = bibEst.dados, cards = [...d.cards, ...bibEst.mais];
-  return `<div class="chips rolar">${[["novos", "Novos"], ["todos", "Todos"], ["selecionados", `★ Selecionados${d.total_selecionados ? ` <b>${d.total_selecionados}</b>` : ""}`]].map(([id, n]) => `<button class="chip${bibEst.so === id ? " on" : ""}" data-bibso="${id}">${n}</button>`).join("")}</div>
-    <div class="chips rolar" style="margin-top:6px">${NICHOS_PACK.map(([id, n]) => `<button class="chip mini${bibEst.nicho === id ? " on" : ""}" data-bibnicho="${id}">${n}</button>`).join("")}
-      ${[["todos", "Tudo"], ["video", "Vídeos"], ["carrossel", "Fotos"]].map(([id, n]) => `<button class="chip mini${bibEst.formato === id ? " on" : ""}" data-bibformato="${id}">${n}</button>`).join("")}</div>
-    ${cards.length ? `<div class="pk-grade">${cards.map(cardPack).join("")}</div>` : `<div class="card"><div class="vazio">${bibEst.so === "selecionados" ? "Nada selecionado ainda. Toque na ☆ de um card." : "Nada por aqui com esses filtros."}</div></div>`}
-    ${bibEst.proximo ? `<div style="margin:14px 0"><button class="btn sec" data-bib="mais">Carregar mais antigos</button></div>` : ""}`;
-}
-const cardBib = (k) => [...(bibEst.dados?.cards ?? []), ...bibEst.mais].find((c) => c.principal === k);
-async function copiarTexto(txt) {
-  try { await navigator.clipboard.writeText(txt); toast("Link copiado ✓"); }
-  catch { prompt("Copie o link:", txt); }
-}
-function folhaPack(c) {
-  folha(`<h2>${esc(c.principal)}${c.nicho ? ` · ${esc(c.nicho)}` : ""}</h2>
-    ${c.codigos.length > 1 ? `<p style="color:var(--txt2);font-size:13px;margin:-4px 0 10px">Juntado: ${c.codigos.map(esc).join(" + ")}</p>` : ""}
-    ${c.video ? `<video src="${esc(c.video)}" controls playsinline preload="metadata" poster="${esc(c.capa ?? "")}" style="width:100%;border-radius:12px;background:#000;margin-bottom:10px"></video>` : ""}
-    <div class="pk-fotos">${c.imgs.map((u) => `<img src="${esc(u)}" alt="" loading="lazy">`).join("")}</div>
-    ${c.links.length ? c.links.map((l) => `<div class="pk-linkfull"><span>${esc(l)}</span><button class="btn sec mini" data-copiar="${esc(l)}">Copiar</button></div>`).join("") : `<div class="aviso">Sem o seu link de afiliada ainda: não dá para postar.</div>`}
-    ${c.legenda ? `<p style="color:var(--txt2);font-size:13px;white-space:pre-wrap">${esc(c.legenda.replace(/https?:\/\/\S+/gi, "[link do pack]"))}</p>` : ""}
-    <div style="display:grid;gap:8px;margin-top:12px">
-      ${c.tem_video && !c.video ? (c.telegram ? `<button class="btn" data-abrir="${esc(c.telegram)}">▶ Ver vídeo no Telegram</button>` : `<p style="color:var(--txt2);font-size:13px">O vídeo fica no Telegram (pack/Acervo); aqui aparece só a capa.</p>`) : ""}
-      ${c.links[0] ? `<button class="btn sec" data-abrir="${esc(c.links[0])}">Abrir na loja</button>` : ""}
-      <button class="btn${c.selecionado ? " sec" : ""}" data-estrela>${c.selecionado ? "★ Tirar da seleção" : "☆ Selecionar"}</button></div>`, (f, fechar) => {
-    f.addEventListener("click", async (ev) => {
-      const b = ev.target.closest("button"); if (!b) return;
-      if (b.dataset.copiar) return copiarTexto(b.dataset.copiar);
-      if (b.dataset.abrir) return window.open(b.dataset.abrir, "_blank", "noopener");
-      if (b.hasAttribute("data-estrela")) { fechar(); return estrelaBib(c); }
-    });
-  });
-}
-async function estrelaBib(c) {
-  const marcar = !c.selecionado;
-  const r = await acao(() => api("/afiloop/biblioteca/estrela", { codigos: c.codigos, marcar }), marcar ? "Selecionado ★" : "Tirado da seleção");
-  c.selecionado = marcar; bibEst.dados.total_selecionados = r.total_selecionados;
-  if (bibEst.so === "selecionados" && !marcar) bibEst.dados.cards = bibEst.dados.cards.filter((x) => x !== c);
-  return render();
-}
-async function cliqueBib(t) {
-  const d = t.dataset;
-  if (d.bibso !== undefined) { bibEst.so = d.bibso; bibEst.dados = null; return render(); }
-  if (d.bibnicho !== undefined) { bibEst.nicho = d.bibnicho; bibEst.dados = null; return render(); }
-  if (d.bibformato !== undefined) { bibEst.formato = d.bibformato; bibEst.dados = null; return render(); }
-  if (d.bib === "mais") {
-    const q = new URLSearchParams({ so: bibEst.so, formato: bibEst.formato, antes: bibEst.proximo }); if (bibEst.nicho) q.set("nicho", bibEst.nicho);
-    const r = await acao(() => api("/afiloop/biblioteca?" + q));
-    const vistos = new Set([...bibEst.dados.cards, ...bibEst.mais].map((c) => c.principal));
-    bibEst.mais.push(...r.cards.filter((c) => !vistos.has(c.principal))); bibEst.proximo = r.proximo; return render();
-  }
-  const c = cardBib(d.k); if (!c) return;
-  if (d.bib === "ver") return folhaPack(c);
-  if (d.bib === "estrela") return estrelaBib(c);
-  if (d.bib === "copiar") return copiarTexto(c.links[0]);
-  if (d.bib === "abrir") return window.open(c.links[0], "_blank", "noopener");
 }
 
 // ---------------- FINANCEIRO ----------------
@@ -1468,10 +1106,6 @@ document.addEventListener("click", async (e) => {
     return render();
   }
   if (t.dataset.mes) { estado.finMes = somaMes(estado.finMes, Number(t.dataset.mes)); return render(); }
-  if (t.dataset.parte) { if (estado.afiloopParte === "estudio") sincronizarEstudio(); estado.afiloopParte = t.dataset.parte; filaEst.sel = null; return render(); }
-  if (t.dataset.est || t.dataset.eformato || t.dataset.erede || t.dataset.egancho) return cliqueEstudio(t);
-  if (t.dataset.fila || t.dataset.faba || t.dataset.frede || t.dataset.facao) return cliqueFila(t);
-  if (t.dataset.bib || t.dataset.bibso !== undefined || t.dataset.bibnicho !== undefined || t.dataset.bibformato !== undefined) return cliqueBib(t);
   if (t.dataset.eudia) { estado.euDia = somaDias(estado.euDia, Number(t.dataset.eudia)); if (estado.euDia > hojeISO()) estado.euDia = hojeISO(); return render(); }
   const dia = estado.aba === "eu" ? estado.euDia : hojeISO();
   if (t.dataset.humor) {

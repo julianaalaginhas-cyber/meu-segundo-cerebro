@@ -29,12 +29,14 @@ Obsidian (Windows/iPhone)  ──plugin "Ponte"──▶  Supabase (notas + memo
 - Compras parceladas: lançamento em `06 - Financeiro/` com `parcelas: N` (2–48) e `valor` total (ou `valor_parcela`) vira N notas em `Lancamentos/Parcelas`, uma por mês (`mes_fatura`; no cartão começa no mês seguinte, ou em `primeira_parcela`), e a compra ganha `parcelas_geradas: true`. O atalho 💸 Despesa ganha forma de pagamento, categorias fixas e parcelas.
 
 ## App Segundo Cérebro (PWA)
-App no celular com Início, Agenda, Chat, Financeiro, Eu e a aba Afiloop (fila de aprovação de posts, ofertas). Lê e escreve pelo Supabase; o Obsidian continua sendo o arquivo oficial.
+App no celular com Início, Agenda, Chat, Financeiro e Eu. Lê e escreve pelo Supabase; o Obsidian continua sendo o arquivo oficial.
+
+**Afiloop:** posts, propostas, aprovação, pack do Telegram e referências ficam no **Afiloop Studio** (https://afiloop.julianaa-laginhas.workers.dev, repositório `afiloop`). Aqui ficam só o atalho "Afiloop" no Início (abre o Studio), a captura rápida de "ideia de post" e os avisos da hora de postar no TikTok, que abrem o post no Studio.
 
 | Peça | Onde | Função |
 |---|---|---|
 | App (HTML/JS, sem build) | `app/` — endereço oficial: https://segundo-cerebro-woad-nine.vercel.app (o login por Face ID/Windows Hello só vale nele; está em `APP_ORIGINS`) | Publicado na Vercel (projeto `segundo-cerebro`). Ao mudar `app.js`/`app.css`, suba a `VERSAO` em `app/sw.js` |
-| `app-api` | `supabase/functions/app-api/` | API do app: login por Face ID/PIN, agenda, financeiro, diário, chat, notificações e fila do Afiloop. Usa `service_role`, por isso toda rota exige sessão do app |
+| `app-api` | `supabase/functions/app-api/` | API do app: login por Face ID/PIN, agenda, financeiro, diário, chat e notificações (inclusive a hora de postar do Afiloop). Usa `service_role`, por isso toda rota exige sessão do app |
 
 Entrar: Face ID / Windows Hello / Touch ID (passkey do aparelho) ou PIN de reserva. Para cadastrar um aparelho novo: entrar com o PIN e aceitar "Entrar sem PIN neste aparelho" (ou Ajustes). Cadastrar pede o PIN de novo se a sessão tiver mais de 15 min.
 
